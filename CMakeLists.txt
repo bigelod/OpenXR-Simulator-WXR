@@ -1,46 +1,62 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.16)
 project(OpenXR-Simulator VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
-# OpenXR Simulator Runtime library
-add_library(openxr_simulator SHARED 
+# Output directories
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
+
+# For multi-config generators (Visual Studio)
+foreach(OUTPUTCONFIG ${CMAKE_CONFIGURATION_TYPES})
+    string(TOUPPER ${OUTPUTCONFIG} OUTPUTCONFIG)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${OUTPUTCONFIG} ${CMAKE_SOURCE_DIR}/bin)
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${OUTPUTCONFIG} ${CMAKE_SOURCE_DIR}/bin)
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${OUTPUTCONFIG} ${CMAKE_SOURCE_DIR}/bin)
+endforeach()
+
+# Include directories
+include_directories(${CMAKE_SOURCE_DIR}/include)
+include_directories(${CMAKE_SOURCE_DIR}/src)
+
+# OpenXR Simulator Runtime DLL
+add_library(openxr_simulator SHARED
     src/runtime.cpp
+    src/mcp_integration.h
+    src/ui_enhancements.h
 )
 
-# Include directories - we'll need to copy OpenXR headers
-target_include_directories(openxr_simulator PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-
-# Link Windows libraries
-target_link_libraries(openxr_simulator PRIVATE 
-    dxgi 
+# Link libraries
+target_link_libraries(openxr_simulator
     d3d11
+    d3d12
+    dxgi
     d3dcompiler
+    dwmapi
+    uxtheme
 )
 
-# Set output properties
-set_target_properties(openxr_simulator PROPERTIES 
-    OUTPUT_NAME "openxr_simulator"
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
-)
+# Windows-specific settings
+if(WIN32)
+    target_compile_definitions(openxr_simulator PRIVATE
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+        _CRT_SECURE_NO_WARNINGS
+    )
+endif()
 
-# Installation rules
-install(TARGETS openxr_simulator
-    RUNTIME DESTINATION bin
-)
+# Generate OpenXR runtime manifest
+set(RUNTIME_MANIFEST_CONTENT "{
+    \"file_format_version\": \"1.0.0\",
+    \"runtime\": {
+        \"library_path\": \"${CMAKE_SOURCE_DIR}/bin/openxr_simulator.dll\"
+    }
+}")
 
-install(FILES 
-    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/register-runtime.ps1
-    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/unregister-runtime.ps1
-    DESTINATION scripts
-)
+file(WRITE ${CMAKE_SOURCE_DIR}/bin/openxr_simulator.json ${RUNTIME_MANIFEST_CONTENT})
 
-install(FILES 
-    ${CMAKE_CURRENT_SOURCE_DIR}/README.md
-    ${CMAKE_CURRENT_SOURCE_DIR}/LICENSE
-    DESTINATION .
-)
+# Installation
+install(TARGETS openxr_simulator DESTINATION bin)
+install(FILES ${CMAKE_SOURCE_DIR}/bin/openxr_simulator.json DESTINATION bin)
