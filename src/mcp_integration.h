@@ -40,6 +40,13 @@ inline std::string GetSimulatorDataPath() {
 
 inline bool g_screenshotRequested = false;
 inline std::string g_screenshotEye = "both";
+inline std::string g_screenshotLayer = "projection";  // "projection", "quad", or "all"
+
+// Storage for quad layer pixels (set by renderQuadLayer)
+inline std::vector<uint8_t> g_quadLayerPixels;
+inline uint32_t g_quadLayerWidth = 0;
+inline uint32_t g_quadLayerHeight = 0;
+inline bool g_quadLayerCaptured = false;
 
 // Check if MCP has requested a screenshot
 inline void CheckScreenshotRequest() {
@@ -53,16 +60,38 @@ inline void CheckScreenshotRequest() {
 
         g_screenshotRequested = true;
         g_screenshotEye = "both";
+        g_screenshotLayer = "projection";  // default
+
         const char* eyePos = strstr(buf, "\"eye\"");
         if (eyePos) {
             if (strstr(eyePos, "\"left\"")) g_screenshotEye = "left";
             else if (strstr(eyePos, "\"right\"")) g_screenshotEye = "right";
         }
 
+        // Check for layer type specification
+        const char* layerPos = strstr(buf, "\"layer\"");
+        if (layerPos) {
+            if (strstr(layerPos, "\"quad\"")) g_screenshotLayer = "quad";
+            else if (strstr(layerPos, "\"all\"")) g_screenshotLayer = "all";
+        }
+
         DeleteFileA(reqPath.c_str());
-        McpLog("Screenshot request detected");
+        McpLogf("Screenshot request detected: layer=%s, eye=%s", g_screenshotLayer.c_str(), g_screenshotEye.c_str());
     }
 }
+
+// Store quad layer pixels for screenshot capture
+inline void StoreQuadLayerPixels(const uint8_t* pixels, uint32_t width, uint32_t height) {
+    if (!pixels || width == 0 || height == 0) return;
+    g_quadLayerWidth = width;
+    g_quadLayerHeight = height;
+    g_quadLayerPixels.resize(width * height * 4);
+    memcpy(g_quadLayerPixels.data(), pixels, width * height * 4);
+    g_quadLayerCaptured = true;
+}
+
+// Forward declaration - CaptureQuadScreenshot is defined after SavePixelsToBMP
+inline void CaptureQuadScreenshot();
 
 // Save a D3D11 texture to BMP file
 inline bool SaveTextureToBMP(ID3D11Device* device, ID3D11DeviceContext* ctx,
@@ -250,6 +279,20 @@ inline bool SavePixelsToBMP(const uint8_t* pixels, uint32_t width, uint32_t heig
     fclose(file);
     McpLogf("Screenshot saved (pixels): %s (%ux%u)", filename, width, height);
     return true;
+}
+
+// Capture quad layer screenshot (implementation - forward declared above)
+inline void CaptureQuadScreenshot() {
+    if (!g_quadLayerCaptured || g_quadLayerPixels.empty()) {
+        McpLog("No quad layer pixels available for screenshot");
+        g_screenshotRequested = false;
+        return;
+    }
+
+    std::string outPath = GetSimulatorDataPath() + "\\screenshot_quad.bmp";
+    SavePixelsToBMP(g_quadLayerPixels.data(), g_quadLayerWidth, g_quadLayerHeight, outPath.c_str());
+    McpLogf("Quad layer screenshot saved: %s (%ux%u)", outPath.c_str(), g_quadLayerWidth, g_quadLayerHeight);
+    g_screenshotRequested = false;
 }
 
 // Capture screenshot from OpenGL pixel data (side-by-side left+right eyes)

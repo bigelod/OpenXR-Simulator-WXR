@@ -335,15 +335,52 @@ struct ControllerState {
     float yawOffset;       // Additional yaw relative to head
     float pitchOffset;     // Additional pitch relative to head
     bool isTracking;       // Whether controller is "tracked"
+
+    // Input state for button/trigger emulation
+    bool triggerPressed;   // Primary trigger (fire)
+    bool gripPressed;      // Grip button
+    bool menuPressed;      // Menu button
+    bool primaryPressed;   // Primary button (A/X)
+    bool secondaryPressed; // Secondary button (B/Y)
+    bool thumbstickPressed;// Thumbstick click
+    float triggerValue;    // 0.0-1.0 trigger analog value
+    float gripValue;       // 0.0-1.0 grip analog value
+    XrVector2f thumbstick; // -1.0 to 1.0 thumbstick position
+
+    // Velocity tracking for motion detection
+    XrVector3f prevPosWorld;    // Previous frame world position
+    XrVector3f linearVelocity;  // m/s in world space
+    XrVector3f angularVelocity; // rad/s
+    float prevYaw;              // Previous yaw for angular velocity
+    float prevPitch;            // Previous pitch for angular velocity
 };
-static ControllerState g_leftController = {{-0.2f, -0.3f, -0.4f}, 0.0f, -0.3f, true};  // Default: left hand position
-static ControllerState g_rightController = {{0.2f, -0.3f, -0.4f}, 0.0f, -0.3f, true};  // Default: right hand position
+static ControllerState g_leftController = {
+    {-0.2f, -0.3f, -0.4f}, 0.0f, -0.3f, true,  // Position/orientation
+    false, false, false, false, false, false,   // Button states
+    0.0f, 0.0f, {0.0f, 0.0f},                   // Analog values
+    {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, 0.0f, 0.0f  // Velocity tracking
+};
+static ControllerState g_rightController = {
+    {0.2f, -0.3f, -0.4f}, 0.0f, -0.3f, true,   // Position/orientation
+    false, false, false, false, false, false,   // Button states
+    0.0f, 0.0f, {0.0f, 0.0f},                   // Analog values
+    {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, 0.0f, 0.0f  // Velocity tracking
+};
 
 // Map XrSpace handles to controller type (0=none, 1=left grip, 2=left aim, 3=right grip, 4=right aim)
 static std::unordered_map<XrSpace, int> g_controllerSpaces;
 
 // Map XrPath to path string for controller detection
 static std::unordered_map<XrPath, std::string> g_pathStrings;
+
+// Map XrAction to action name for input mapping
+static std::unordered_map<XrAction, std::string> g_actionNames;
+
+// Map XrAction to which hand it's bound to (0=both/any, 1=left, 2=right)
+static std::unordered_map<XrAction, int> g_actionHand;
+
+// Time tracking for velocity calculation
+static XrTime g_lastFrameTime = 0;
 
 // Get controller world pose (combines head pose with controller offset)
 static void GetControllerPose(const ControllerState& ctrl, XrPosef* outPose) {
@@ -1968,7 +2005,42 @@ static XrResult XRAPI_PTR xrWaitFrame_runtime(XrSession, const XrFrameWaitInfo*,
             rt::g_headPos.y += moveSpeed * deltaTime;
         }
 
-        // Right controller manipulation (numpad keys)
+        // ========================================
+        // Automatic Controller Animation Mode
+        // ========================================
+        // Press 'M' to toggle automatic motion - controller moves in a pattern
+        static bool autoMotionEnabled = true;  // Start with auto motion ON for testing
+        static bool mKeyWasPressed = false;
+        static float animTime = 0.0f;
+
+        bool mKeyPressed = (GetAsyncKeyState('M') & 0x8000) != 0;
+        if (mKeyPressed && !mKeyWasPressed) {
+            autoMotionEnabled = !autoMotionEnabled;
+            Logf("[SimXR] Auto motion %s", autoMotionEnabled ? "ENABLED" : "DISABLED");
+        }
+        mKeyWasPressed = mKeyPressed;
+
+        if (autoMotionEnabled) {
+            animTime += deltaTime;
+
+            // Move controller in a figure-8 pattern around the camera
+            // X: side to side (left/right)
+            // Y: up and down
+            // Z: forward and back
+            float radius = 0.4f;  // 40cm radius of motion
+            float speed = 0.5f;   // Complete cycle every ~12 seconds
+
+            // Figure-8 pattern
+            rt::g_rightController.posOffset.x = radius * sinf(animTime * speed * 2.0f);
+            rt::g_rightController.posOffset.y = -0.2f + 0.3f * sinf(animTime * speed);  // Oscillate between -0.5 and +0.1
+            rt::g_rightController.posOffset.z = -0.4f + radius * sinf(animTime * speed) * cosf(animTime * speed);
+
+            // Also rotate the controller
+            rt::g_rightController.yawOffset = 0.5f * sinf(animTime * speed * 1.5f);
+            rt::g_rightController.pitchOffset = -0.3f + 0.3f * cosf(animTime * speed);
+        }
+
+        // Right controller manipulation (numpad keys) - only when auto motion is off
         // Numpad 8/2: Move controller forward/back (in local space)
         // Numpad 4/6: Move controller left/right (in local space)
         // Numpad +/-: Move controller up/down
@@ -1977,41 +2049,134 @@ static XrResult XRAPI_PTR xrWaitFrame_runtime(XrSession, const XrFrameWaitInfo*,
         const float ctrlMoveSpeed = 0.5f * deltaTime;
         const float ctrlRotSpeed = 1.0f * deltaTime;
 
-        if (GetAsyncKeyState(VK_NUMPAD8) & 0x8000) {
-            rt::g_rightController.posOffset.z -= ctrlMoveSpeed;  // Forward
-        }
-        if (GetAsyncKeyState(VK_NUMPAD2) & 0x8000) {
-            rt::g_rightController.posOffset.z += ctrlMoveSpeed;  // Back
-        }
-        if (GetAsyncKeyState(VK_NUMPAD4) & 0x8000) {
-            rt::g_rightController.posOffset.x -= ctrlMoveSpeed;  // Left
-        }
-        if (GetAsyncKeyState(VK_NUMPAD6) & 0x8000) {
-            rt::g_rightController.posOffset.x += ctrlMoveSpeed;  // Right
-        }
-        if (GetAsyncKeyState(VK_ADD) & 0x8000) {
-            rt::g_rightController.posOffset.y += ctrlMoveSpeed;  // Up
-        }
-        if (GetAsyncKeyState(VK_SUBTRACT) & 0x8000) {
-            rt::g_rightController.posOffset.y -= ctrlMoveSpeed;  // Down
-        }
-        if (GetAsyncKeyState(VK_NUMPAD7) & 0x8000) {
-            rt::g_rightController.yawOffset -= ctrlRotSpeed;  // Rotate left
-        }
-        if (GetAsyncKeyState(VK_NUMPAD9) & 0x8000) {
-            rt::g_rightController.yawOffset += ctrlRotSpeed;  // Rotate right
-        }
-        if (GetAsyncKeyState(VK_NUMPAD1) & 0x8000) {
-            rt::g_rightController.pitchOffset += ctrlRotSpeed;  // Pitch down
-        }
-        if (GetAsyncKeyState(VK_NUMPAD3) & 0x8000) {
-            rt::g_rightController.pitchOffset -= ctrlRotSpeed;  // Pitch up
+        if (!autoMotionEnabled) {
+            if (GetAsyncKeyState(VK_NUMPAD8) & 0x8000) {
+                rt::g_rightController.posOffset.z -= ctrlMoveSpeed;  // Forward
+            }
+            if (GetAsyncKeyState(VK_NUMPAD2) & 0x8000) {
+                rt::g_rightController.posOffset.z += ctrlMoveSpeed;  // Back
+            }
+            if (GetAsyncKeyState(VK_NUMPAD4) & 0x8000) {
+                rt::g_rightController.posOffset.x -= ctrlMoveSpeed;  // Left
+            }
+            if (GetAsyncKeyState(VK_NUMPAD6) & 0x8000) {
+                rt::g_rightController.posOffset.x += ctrlMoveSpeed;  // Right
+            }
+            if (GetAsyncKeyState(VK_ADD) & 0x8000) {
+                rt::g_rightController.posOffset.y += ctrlMoveSpeed;  // Up
+            }
+            if (GetAsyncKeyState(VK_SUBTRACT) & 0x8000) {
+                rt::g_rightController.posOffset.y -= ctrlMoveSpeed;  // Down
+            }
+            if (GetAsyncKeyState(VK_NUMPAD7) & 0x8000) {
+                rt::g_rightController.yawOffset -= ctrlRotSpeed;  // Rotate left
+            }
+            if (GetAsyncKeyState(VK_NUMPAD9) & 0x8000) {
+                rt::g_rightController.yawOffset += ctrlRotSpeed;  // Rotate right
+            }
+            if (GetAsyncKeyState(VK_NUMPAD1) & 0x8000) {
+                rt::g_rightController.pitchOffset += ctrlRotSpeed;  // Pitch down
+            }
+            if (GetAsyncKeyState(VK_NUMPAD3) & 0x8000) {
+                rt::g_rightController.pitchOffset -= ctrlRotSpeed;  // Pitch up
+            }
         }
         // Numpad 5: Reset controller to default position
         if (GetAsyncKeyState(VK_NUMPAD5) & 0x8000) {
             rt::g_rightController.posOffset = {0.2f, -0.3f, -0.4f};
             rt::g_rightController.yawOffset = 0.0f;
             rt::g_rightController.pitchOffset = -0.3f;
+            autoMotionEnabled = false;
+        }
+
+        // ========================================
+        // Controller Button/Trigger Emulation
+        // ========================================
+        // Right controller buttons (main hand for most games)
+        // Space = Trigger (fire weapon)
+        // F = Grip (grab)
+        // Tab = Menu
+        // R = Primary button (A)
+        // T = Secondary button (B)
+        // Enter = Thumbstick click
+        rt::g_rightController.triggerPressed = (GetAsyncKeyState(VK_SPACE) & 0x8000) != 0;
+        rt::g_rightController.triggerValue = rt::g_rightController.triggerPressed ? 1.0f : 0.0f;
+        rt::g_rightController.gripPressed = (GetAsyncKeyState('F') & 0x8000) != 0;
+        rt::g_rightController.gripValue = rt::g_rightController.gripPressed ? 1.0f : 0.0f;
+        rt::g_rightController.menuPressed = (GetAsyncKeyState(VK_TAB) & 0x8000) != 0;
+        rt::g_rightController.primaryPressed = (GetAsyncKeyState('R') & 0x8000) != 0;
+        rt::g_rightController.secondaryPressed = (GetAsyncKeyState('T') & 0x8000) != 0;
+        rt::g_rightController.thumbstickPressed = (GetAsyncKeyState(VK_RETURN) & 0x8000) != 0;
+
+        // Left controller buttons (off-hand)
+        // Left Ctrl = Trigger
+        // Left Alt = Grip
+        // G = Menu (left hand)
+        // V = Primary (X)
+        // B = Secondary (Y)
+        rt::g_leftController.triggerPressed = (GetAsyncKeyState(VK_LCONTROL) & 0x8000) != 0;
+        rt::g_leftController.triggerValue = rt::g_leftController.triggerPressed ? 1.0f : 0.0f;
+        rt::g_leftController.gripPressed = (GetAsyncKeyState(VK_LMENU) & 0x8000) != 0;
+        rt::g_leftController.gripValue = rt::g_leftController.gripPressed ? 1.0f : 0.0f;
+        rt::g_leftController.menuPressed = (GetAsyncKeyState('G') & 0x8000) != 0;
+        rt::g_leftController.primaryPressed = (GetAsyncKeyState('V') & 0x8000) != 0;
+        rt::g_leftController.secondaryPressed = (GetAsyncKeyState('B') & 0x8000) != 0;
+
+        // Right controller thumbstick (Arrow keys)
+        rt::g_rightController.thumbstick = {0.0f, 0.0f};
+        if (GetAsyncKeyState(VK_UP) & 0x8000) rt::g_rightController.thumbstick.y = 1.0f;
+        if (GetAsyncKeyState(VK_DOWN) & 0x8000) rt::g_rightController.thumbstick.y = -1.0f;
+        if (GetAsyncKeyState(VK_LEFT) & 0x8000) rt::g_rightController.thumbstick.x = -1.0f;
+        if (GetAsyncKeyState(VK_RIGHT) & 0x8000) rt::g_rightController.thumbstick.x = 1.0f;
+
+        // Left controller thumbstick (IJKL keys)
+        rt::g_leftController.thumbstick = {0.0f, 0.0f};
+        if (GetAsyncKeyState('I') & 0x8000) rt::g_leftController.thumbstick.y = 1.0f;
+        if (GetAsyncKeyState('K') & 0x8000) rt::g_leftController.thumbstick.y = -1.0f;
+        if (GetAsyncKeyState('J') & 0x8000) rt::g_leftController.thumbstick.x = -1.0f;
+        if (GetAsyncKeyState('L') & 0x8000) rt::g_leftController.thumbstick.x = 1.0f;
+
+        // ========================================
+        // Velocity Tracking for Motion Controls
+        // ========================================
+        // Calculate controller world positions
+        XrPosef rightPose, leftPose;
+        rt::GetControllerPose(rt::g_rightController, &rightPose);
+        rt::GetControllerPose(rt::g_leftController, &leftPose);
+
+        // Calculate linear velocity from position delta
+        if (deltaTime > 0.0f) {
+            // Right controller velocity
+            rt::g_rightController.linearVelocity.x = (rightPose.position.x - rt::g_rightController.prevPosWorld.x) / deltaTime;
+            rt::g_rightController.linearVelocity.y = (rightPose.position.y - rt::g_rightController.prevPosWorld.y) / deltaTime;
+            rt::g_rightController.linearVelocity.z = (rightPose.position.z - rt::g_rightController.prevPosWorld.z) / deltaTime;
+
+            // Left controller velocity
+            rt::g_leftController.linearVelocity.x = (leftPose.position.x - rt::g_leftController.prevPosWorld.x) / deltaTime;
+            rt::g_leftController.linearVelocity.y = (leftPose.position.y - rt::g_leftController.prevPosWorld.y) / deltaTime;
+            rt::g_leftController.linearVelocity.z = (leftPose.position.z - rt::g_leftController.prevPosWorld.z) / deltaTime;
+
+            // Angular velocity from yaw/pitch delta
+            float totalRightYaw = rt::g_headYaw + rt::g_rightController.yawOffset;
+            float totalRightPitch = rt::g_headPitch + rt::g_rightController.pitchOffset;
+            rt::g_rightController.angularVelocity.x = (totalRightPitch - rt::g_rightController.prevPitch) / deltaTime;
+            rt::g_rightController.angularVelocity.y = (totalRightYaw - rt::g_rightController.prevYaw) / deltaTime;
+            rt::g_rightController.angularVelocity.z = 0.0f;
+
+            float totalLeftYaw = rt::g_headYaw + rt::g_leftController.yawOffset;
+            float totalLeftPitch = rt::g_headPitch + rt::g_leftController.pitchOffset;
+            rt::g_leftController.angularVelocity.x = (totalLeftPitch - rt::g_leftController.prevPitch) / deltaTime;
+            rt::g_leftController.angularVelocity.y = (totalLeftYaw - rt::g_leftController.prevYaw) / deltaTime;
+            rt::g_leftController.angularVelocity.z = 0.0f;
+
+            // Update previous state for next frame
+            rt::g_rightController.prevPosWorld = rightPose.position;
+            rt::g_rightController.prevYaw = totalRightYaw;
+            rt::g_rightController.prevPitch = totalRightPitch;
+
+            rt::g_leftController.prevPosWorld = leftPose.position;
+            rt::g_leftController.prevYaw = totalLeftYaw;
+            rt::g_leftController.prevPitch = totalLeftPitch;
         }
 
         // Check for MCP head pose commands (for automated testing)
@@ -2735,10 +2900,29 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
             // MCP Integration - check for screenshot requests and capture (OpenGL path)
             mcp::CheckScreenshotRequest();
             if (mcp::g_screenshotRequested) {
-                mcp::CaptureScreenshotGL(
-                    leftTex != 0 ? leftPixels.data() : nullptr,
-                    rightTex != 0 ? rightPixels.data() : nullptr,
-                    width, height);
+                if (mcp::g_screenshotLayer == "quad") {
+                    // Capture only quad layer
+                    mcp::CaptureQuadScreenshot();
+                } else if (mcp::g_screenshotLayer == "all") {
+                    // Capture both projection and quad layers
+                    mcp::CaptureScreenshotGL(
+                        leftTex != 0 ? leftPixels.data() : nullptr,
+                        rightTex != 0 ? rightPixels.data() : nullptr,
+                        width, height);
+                    // Also capture quad layer separately
+                    if (mcp::g_quadLayerCaptured) {
+                        std::string quadPath = mcp::GetSimulatorDataPath() + "\\screenshot_quad.bmp";
+                        mcp::SavePixelsToBMP(mcp::g_quadLayerPixels.data(),
+                            mcp::g_quadLayerWidth, mcp::g_quadLayerHeight, quadPath.c_str());
+                    }
+                    mcp::g_screenshotRequested = false;
+                } else {
+                    // Default: capture projection layer
+                    mcp::CaptureScreenshotGL(
+                        leftTex != 0 ? leftPixels.data() : nullptr,
+                        rightTex != 0 ? rightPixels.data() : nullptr,
+                        width, height);
+                }
             }
 
             // Restore original GL context
@@ -3331,6 +3515,9 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
             memcpy(bottomRow, tempRow.data(), rowSize);
         }
 
+        // Store quad layer pixels for MCP screenshot capture
+        mcp::StoreQuadLayerPixels(pixels.data(), texWidth, texHeight);
+
         // Restore GL context
         if (savedRC) wglMakeCurrent(savedDC, savedRC);
 
@@ -3689,14 +3876,19 @@ static XrResult XRAPI_PTR xrLocateSpace_runtime(XrSpace space, XrSpace baseSpace
             XrSpaceVelocity* velocity = (XrSpaceVelocity*)location->next;
             if (velocity && velocity->type == XR_TYPE_SPACE_VELOCITY) {
                 velocity->velocityFlags = XR_SPACE_VELOCITY_LINEAR_VALID_BIT | XR_SPACE_VELOCITY_ANGULAR_VALID_BIT;
-                velocity->linearVelocity = {0, 0, 0};
-                velocity->angularVelocity = {0, 0, 0};
+                // Return the calculated velocities from the controller state
+                velocity->linearVelocity = ctrl.linearVelocity;
+                velocity->angularVelocity = ctrl.angularVelocity;
             }
 
             static int logCount = 0;
             if (++logCount % 500 == 1) {
-                Logf("[SimXR] xrLocateSpace: controller %d at (%.2f, %.2f, %.2f)",
-                     ctrlType, location->pose.position.x, location->pose.position.y, location->pose.position.z);
+                float speed = sqrtf(ctrl.linearVelocity.x * ctrl.linearVelocity.x +
+                                   ctrl.linearVelocity.y * ctrl.linearVelocity.y +
+                                   ctrl.linearVelocity.z * ctrl.linearVelocity.z);
+                Logf("[SimXR] xrLocateSpace: controller %d at (%.2f, %.2f, %.2f) vel=(%.2f, %.2f, %.2f) speed=%.2f m/s",
+                     ctrlType, location->pose.position.x, location->pose.position.y, location->pose.position.z,
+                     ctrl.linearVelocity.x, ctrl.linearVelocity.y, ctrl.linearVelocity.z, speed);
             }
         } else {
             location->locationFlags = 0;
@@ -3782,7 +3974,24 @@ static XrResult XRAPI_PTR xrCreateAction_runtime(XrActionSet, const XrActionCrea
     // actionName may not be null-terminated
     char actName[XR_MAX_ACTION_NAME_SIZE + 1] = {0};
     memcpy(actName, info->actionName, XR_MAX_ACTION_NAME_SIZE);
-    Logf("[SimXR] xrCreateAction: name=%s", actName);
+    Logf("[SimXR] xrCreateAction: name=%s, type=%d", actName, info->actionType);
+
+    // Store action name for input mapping
+    rt::g_actionNames[*action] = actName;
+
+    // Detect which hand this action is bound to based on subactionPaths
+    int handBinding = 0;  // 0=both/any
+    if (info->countSubactionPaths > 0 && info->subactionPaths) {
+        for (uint32_t i = 0; i < info->countSubactionPaths; i++) {
+            auto it = rt::g_pathStrings.find(info->subactionPaths[i]);
+            if (it != rt::g_pathStrings.end()) {
+                if (it->second.find("left") != std::string::npos) handBinding |= 1;
+                if (it->second.find("right") != std::string::npos) handBinding |= 2;
+            }
+        }
+    }
+    rt::g_actionHand[*action] = handBinding;
+
     return XR_SUCCESS;
 }
 
@@ -3805,23 +4014,92 @@ static XrResult XRAPI_PTR xrAttachSessionActionSets_runtime(XrSession, const XrS
     return XR_SUCCESS;
 }
 
+// Helper to get controller state based on action and subactionPath
+static rt::ControllerState* GetControllerForAction(XrAction action, XrPath subactionPath) {
+    // First check subactionPath
+    if (subactionPath != XR_NULL_PATH) {
+        auto pathIt = rt::g_pathStrings.find(subactionPath);
+        if (pathIt != rt::g_pathStrings.end()) {
+            if (pathIt->second.find("left") != std::string::npos) return &rt::g_leftController;
+            if (pathIt->second.find("right") != std::string::npos) return &rt::g_rightController;
+        }
+    }
+    // Fall back to action's hand binding
+    auto handIt = rt::g_actionHand.find(action);
+    if (handIt != rt::g_actionHand.end()) {
+        if (handIt->second == 1) return &rt::g_leftController;
+        if (handIt->second == 2) return &rt::g_rightController;
+    }
+    // Default to right hand
+    return &rt::g_rightController;
+}
+
+// Helper to check if action name matches input type (case-insensitive substring match)
+static bool ActionNameMatches(const std::string& name, const char* pattern) {
+    std::string lower = name;
+    for (auto& c : lower) c = (char)tolower(c);
+    std::string patLower = pattern;
+    for (auto& c : patLower) c = (char)tolower(c);
+    return lower.find(patLower) != std::string::npos;
+}
+
 static XrResult XRAPI_PTR xrGetActionStateBoolean_runtime(XrSession, const XrActionStateGetInfo* info, XrActionStateBoolean* state) {
     if (!info || !state) return XR_ERROR_VALIDATION_FAILURE;
     state->type = XR_TYPE_ACTION_STATE_BOOLEAN;
-    state->currentState = XR_FALSE;
     state->changedSinceLastSync = XR_FALSE;
     state->lastChangeTime = 0;
-    state->isActive = XR_FALSE;
+
+    // Get controller for this action
+    rt::ControllerState* ctrl = GetControllerForAction(info->action, info->subactionPath);
+
+    // Get action name to determine input type
+    bool buttonState = false;
+    auto nameIt = rt::g_actionNames.find(info->action);
+    if (nameIt != rt::g_actionNames.end()) {
+        const std::string& name = nameIt->second;
+        if (ActionNameMatches(name, "trigger") || ActionNameMatches(name, "select") || ActionNameMatches(name, "fire")) {
+            buttonState = ctrl->triggerPressed;
+        } else if (ActionNameMatches(name, "grip") || ActionNameMatches(name, "squeeze") || ActionNameMatches(name, "grab")) {
+            buttonState = ctrl->gripPressed;
+        } else if (ActionNameMatches(name, "menu")) {
+            buttonState = ctrl->menuPressed;
+        } else if (ActionNameMatches(name, "primary") || ActionNameMatches(name, "a_button") || ActionNameMatches(name, "x_button")) {
+            buttonState = ctrl->primaryPressed;
+        } else if (ActionNameMatches(name, "secondary") || ActionNameMatches(name, "b_button") || ActionNameMatches(name, "y_button")) {
+            buttonState = ctrl->secondaryPressed;
+        } else if (ActionNameMatches(name, "thumbstick") || ActionNameMatches(name, "joystick")) {
+            buttonState = ctrl->thumbstickPressed;
+        }
+    }
+
+    state->currentState = buttonState ? XR_TRUE : XR_FALSE;
+    state->isActive = XR_TRUE;  // Controllers are always active in simulator
     return XR_SUCCESS;
 }
 
 static XrResult XRAPI_PTR xrGetActionStateFloat_runtime(XrSession, const XrActionStateGetInfo* info, XrActionStateFloat* state) {
     if (!info || !state) return XR_ERROR_VALIDATION_FAILURE;
     state->type = XR_TYPE_ACTION_STATE_FLOAT;
-    state->currentState = 0.0f;
     state->changedSinceLastSync = XR_FALSE;
     state->lastChangeTime = 0;
-    state->isActive = XR_FALSE;
+
+    // Get controller for this action
+    rt::ControllerState* ctrl = GetControllerForAction(info->action, info->subactionPath);
+
+    // Get action name to determine input type
+    float floatState = 0.0f;
+    auto nameIt = rt::g_actionNames.find(info->action);
+    if (nameIt != rt::g_actionNames.end()) {
+        const std::string& name = nameIt->second;
+        if (ActionNameMatches(name, "trigger") || ActionNameMatches(name, "select") || ActionNameMatches(name, "fire")) {
+            floatState = ctrl->triggerValue;
+        } else if (ActionNameMatches(name, "grip") || ActionNameMatches(name, "squeeze") || ActionNameMatches(name, "grab")) {
+            floatState = ctrl->gripValue;
+        }
+    }
+
+    state->currentState = floatState;
+    state->isActive = XR_TRUE;
     return XR_SUCCESS;
 }
 
@@ -3835,10 +4113,27 @@ static XrResult XRAPI_PTR xrGetActionStatePose_runtime(XrSession, const XrAction
 static XrResult XRAPI_PTR xrGetActionStateVector2f_runtime(XrSession, const XrActionStateGetInfo* info, XrActionStateVector2f* state) {
     if (!info || !state) return XR_ERROR_VALIDATION_FAILURE;
     state->type = XR_TYPE_ACTION_STATE_VECTOR2F;
-    state->currentState = {0.0f, 0.0f};
     state->changedSinceLastSync = XR_FALSE;
     state->lastChangeTime = 0;
-    state->isActive = XR_FALSE;
+
+    // Get controller for this action
+    rt::ControllerState* ctrl = GetControllerForAction(info->action, info->subactionPath);
+
+    // Get action name to determine input type
+    auto nameIt = rt::g_actionNames.find(info->action);
+    if (nameIt != rt::g_actionNames.end()) {
+        const std::string& name = nameIt->second;
+        if (ActionNameMatches(name, "thumbstick") || ActionNameMatches(name, "joystick") ||
+            ActionNameMatches(name, "move") || ActionNameMatches(name, "turn")) {
+            state->currentState = ctrl->thumbstick;
+        } else {
+            state->currentState = {0.0f, 0.0f};
+        }
+    } else {
+        state->currentState = {0.0f, 0.0f};
+    }
+
+    state->isActive = XR_TRUE;
     return XR_SUCCESS;
 }
 
