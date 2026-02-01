@@ -1,3 +1,11 @@
+(OXRWXR) OpenXR for WinlatorXR
+
+An attempt to convert OpenXR Simulator into a viable 6DOF OpenXR runtime to run inside WinlatorXR containers
+
+# ----------------------
+# Original ReadMe:
+# ----------------------
+
 # OpenXR Simulator
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
