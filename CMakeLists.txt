@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(OpenXR-Simulator VERSION 1.0.0 LANGUAGES CXX)
+project(OxrWXR-Simulator VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,14 +22,14 @@ include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${CMAKE_SOURCE_DIR}/src)
 
 # OpenXR Simulator Runtime DLL
-add_library(openxr_simulator SHARED
+add_library(openxr_wxr SHARED
     src/runtime.cpp
     src/mcp_integration.h
     src/ui_enhancements.h
 )
 
 # Link libraries
-target_link_libraries(openxr_simulator
+target_link_libraries(openxr_wxr
     d3d11
     d3d12
     dxgi
@@ -40,7 +40,7 @@ target_link_libraries(openxr_simulator
 
 # Windows-specific settings
 if(WIN32)
-    target_compile_definitions(openxr_simulator PRIVATE
+    target_compile_definitions(openxr_wxr PRIVATE
         WIN32_LEAN_AND_MEAN
         NOMINMAX
         _CRT_SECURE_NO_WARNINGS
@@ -51,12 +51,12 @@ endif()
 set(RUNTIME_MANIFEST_CONTENT "{
     \"file_format_version\": \"1.0.0\",
     \"runtime\": {
-        \"library_path\": \"${CMAKE_SOURCE_DIR}/bin/openxr_simulator.dll\"
+        \"library_path\": \"${CMAKE_SOURCE_DIR}/bin/openxr_wxr.dll\"
     }
 }")
 
-file(WRITE ${CMAKE_SOURCE_DIR}/bin/openxr_simulator.json ${RUNTIME_MANIFEST_CONTENT})
+file(WRITE ${CMAKE_SOURCE_DIR}/bin/openxr_wxr.json ${RUNTIME_MANIFEST_CONTENT})
 
 # Installation
-install(TARGETS openxr_simulator DESTINATION bin)
-install(FILES ${CMAKE_SOURCE_DIR}/bin/openxr_simulator.json DESTINATION bin)
+install(TARGETS openxr_wxr DESTINATION bin)
+install(FILES ${CMAKE_SOURCE_DIR}/bin/openxr_wxr.json DESTINATION bin)

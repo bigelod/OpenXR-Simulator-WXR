@@ -128,11 +128,11 @@ static void EnsureLogFile() {
     DWORD len = GetEnvironmentVariableA("LOCALAPPDATA", base, (DWORD)sizeof(base));
     char path[MAX_PATH]{};
     if (len > 0 && len < sizeof(base)) {
-        snprintf(path, sizeof(path), "%s\\OpenXR-Simulator", base);
+        snprintf(path, sizeof(path), "%s\\OxrWXR-Simulator", base);
         CreateDirectoryA(path, nullptr);
-        snprintf(path, sizeof(path), "%s\\OpenXR-Simulator\\openxr_simulator.log", base);
+        snprintf(path, sizeof(path), "%s\\OxrWXR-Simulator\\openxr_wxr.log", base);
     } else {
-        snprintf(path, sizeof(path), ".\\openxr_simulator.log");
+        snprintf(path, sizeof(path), ".\\openxr_wxr.log");
     }
     fopen_s(&g_LogFile, path, "a");
 }
