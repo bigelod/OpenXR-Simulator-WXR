@@ -2,9 +2,12 @@
 
 An attempt to convert OpenXR Simulator into a viable 6DOF OpenXR runtime to run inside WinlatorXR containers
 
-# ----------------------
+<br/><br/><br/><br/><br/><br/><br/><br/><br/>
+
 # Original ReadMe:
-# ----------------------
+
+<br/><br/><br/><br/><br/><br/><br/><br/><br/>
+
 
 # OpenXR Simulator
 
