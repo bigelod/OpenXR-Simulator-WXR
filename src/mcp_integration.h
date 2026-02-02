@@ -1,4 +1,4 @@
-// MCP Integration - Screenshot capture and status reporting for OpenXR Simulator
+// MCP Integration - Screenshot capture and status reporting for OpenXR WXR
 #pragma once
 
 #include <windows.h>

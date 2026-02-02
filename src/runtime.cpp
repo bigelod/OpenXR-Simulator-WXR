@@ -1,4 +1,4 @@
-// Minimal OpenXR Simulator Runtime (D3D11/D3D12/OpenGL)
+// Minimal OpenXR WXR Runtime (D3D11/D3D12/OpenGL)
 // - Implements enough of the runtime interface to let OpenXR apps start and render into runtime-owned swapchains
 // - Opens a desktop window and presents the app's submitted images side-by-side
 // - Supports D3D11, D3D12, and OpenGL graphics APIs
@@ -154,7 +154,7 @@ static bool EnsureGLTexImage3D() {
     if (g_glTexImage3D) return true;
     g_glTexImage3D = (PFNGLTEXIMAGE3DPROC)wglGetProcAddress("glTexImage3D");
     if (!g_glTexImage3D) {
-        Log("[SimXR] Failed to load glTexImage3D");
+        Log("[OXRWXR] Failed to load glTexImage3D");
         return false;
     }
     return true;
@@ -169,7 +169,7 @@ static bool EnsureGLFramebufferFuncs() {
     g_glCheckFramebufferStatus = (PFNGLCHECKFRAMEBUFFERSTATUSPROC)wglGetProcAddress("glCheckFramebufferStatus");
     if (!g_glGenFramebuffers || !g_glDeleteFramebuffers || !g_glBindFramebuffer ||
         !g_glFramebufferTexture2D || !g_glCheckFramebufferStatus) {
-        Log("[SimXR] Failed to load GL framebuffer functions");
+        Log("[OXRWXR] Failed to load GL framebuffer functions");
         return false;
     }
     return true;
@@ -483,23 +483,23 @@ bool InitBlitResources(Session& s) {
     hr = D3DCompile(shaderSource, strlen(shaderSource), "BlitShader", nullptr, nullptr, 
                     "VSMain", "vs_5_0", compileFlags, 0, vsBlob.GetAddressOf(), errorBlob.GetAddressOf());
     if (FAILED(hr)) {
-        Logf("[SimXR] Failed to compile VS: %s", errorBlob ? (char*)errorBlob->GetBufferPointer() : "Unknown error");
+        Logf("[OXRWXR] Failed to compile VS: %s", errorBlob ? (char*)errorBlob->GetBufferPointer() : "Unknown error");
         return false;
     }
     hr = s.d3d11Device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), 
                                            nullptr, s.blitVS.GetAddressOf());
-    if (FAILED(hr)) { Logf("[SimXR] Failed to create VS: 0x%08X", hr); return false; }
+    if (FAILED(hr)) { Logf("[OXRWXR] Failed to create VS: 0x%08X", hr); return false; }
 
     // Compile PS
     hr = D3DCompile(shaderSource, strlen(shaderSource), "BlitShader", nullptr, nullptr, 
                     "PSMain", "ps_5_0", compileFlags, 0, psBlob.GetAddressOf(), errorBlob.GetAddressOf());
     if (FAILED(hr)) {
-        Logf("[SimXR] Failed to compile PS: %s", errorBlob ? (char*)errorBlob->GetBufferPointer() : "Unknown error");
+        Logf("[OXRWXR] Failed to compile PS: %s", errorBlob ? (char*)errorBlob->GetBufferPointer() : "Unknown error");
         return false;
     }
     hr = s.d3d11Device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), 
                                           nullptr, s.blitPS.GetAddressOf());
-    if (FAILED(hr)) { Logf("[SimXR] Failed to create PS: 0x%08X", hr); return false; }
+    if (FAILED(hr)) { Logf("[OXRWXR] Failed to create PS: 0x%08X", hr); return false; }
 
     // Create Sampler State
     D3D11_SAMPLER_DESC sampDesc = {};
@@ -511,7 +511,7 @@ bool InitBlitResources(Session& s) {
     sampDesc.MinLOD = 0; 
     sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
     hr = s.d3d11Device->CreateSamplerState(&sampDesc, s.samplerState.GetAddressOf());
-    if (FAILED(hr)) { Logf("[SimXR] Failed to create SamplerState: 0x%08X", hr); return false; }
+    if (FAILED(hr)) { Logf("[OXRWXR] Failed to create SamplerState: 0x%08X", hr); return false; }
 
     // Create Rasterizer State with culling disabled
     D3D11_RASTERIZER_DESC rsDesc{};
@@ -523,7 +523,7 @@ bool InitBlitResources(Session& s) {
     rsDesc.MultisampleEnable = FALSE;
     rsDesc.AntialiasedLineEnable = FALSE;
     hr = s.d3d11Device->CreateRasterizerState(&rsDesc, s.noCullRS.GetAddressOf());
-    if (FAILED(hr)) { Logf("[SimXR] Failed to create RasterizerState: 0x%08X", hr); return false; }
+    if (FAILED(hr)) { Logf("[OXRWXR] Failed to create RasterizerState: 0x%08X", hr); return false; }
 
     // Create blend states for anaglyph rendering
     D3D11_BLEND_DESC blendDesc{};
@@ -532,14 +532,14 @@ bool InitBlitResources(Session& s) {
     blendDesc.RenderTarget[0].BlendEnable = FALSE;
     blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_RED;
     hr = s.d3d11Device->CreateBlendState(&blendDesc, s.anaglyphRedBS.GetAddressOf());
-    if (FAILED(hr)) { Logf("[SimXR] Failed to create anaglyph red blend state: 0x%08X", hr); return false; }
+    if (FAILED(hr)) { Logf("[OXRWXR] Failed to create anaglyph red blend state: 0x%08X", hr); return false; }
 
     blendDesc.RenderTarget[0].RenderTargetWriteMask =
         D3D11_COLOR_WRITE_ENABLE_GREEN | D3D11_COLOR_WRITE_ENABLE_BLUE;
     hr = s.d3d11Device->CreateBlendState(&blendDesc, s.anaglyphCyanBS.GetAddressOf());
-    if (FAILED(hr)) { Logf("[SimXR] Failed to create anaglyph cyan blend state: 0x%08X", hr); return false; }
+    if (FAILED(hr)) { Logf("[OXRWXR] Failed to create anaglyph cyan blend state: 0x%08X", hr); return false; }
 
-    Log("[SimXR] Blit resources initialized successfully.");
+    Log("[OXRWXR] Blit resources initialized successfully.");
     return true;
 }
 
@@ -565,25 +565,25 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             if (rt::g_session.handle != XR_NULL_HANDLE) {
                 rt::PushState(rt::g_session.handle, XR_SESSION_STATE_EXITING);
             }
-            Log("[SimXR] WndProc: WM_CLOSE received");
+            Log("[OXRWXR] WndProc: WM_CLOSE received");
             DestroyWindow(hWnd);
             return 0;
         case WM_DESTROY:
             // DON'T call PostQuitMessage - we're a DLL, not the main app!
             // PostQuitMessage would tell the host application to exit.
-            Log("[SimXR] WndProc: WM_DESTROY received");
+            Log("[OXRWXR] WndProc: WM_DESTROY received");
             return 0;
         case WM_ACTIVATE:
             if (LOWORD(wParam) != WA_INACTIVE) {
                 rt::g_session.isFocused = true;
-                Log("[SimXR] WndProc: WM_ACTIVATE -> focused");
+                Log("[OXRWXR] WndProc: WM_ACTIVATE -> focused");
                 // Push FOCUSED state if we were VISIBLE
                 if (rt::g_session.state == XR_SESSION_STATE_VISIBLE) {
                     rt::PushState(rt::g_session.handle, XR_SESSION_STATE_FOCUSED);
                 }
             } else {
                 rt::g_session.isFocused = false;
-                Log("[SimXR] WndProc: WM_ACTIVATE -> unfocused");
+                Log("[OXRWXR] WndProc: WM_ACTIVATE -> unfocused");
                 rt::g_mouseCapture = false;  // Release mouse capture when window loses focus
                 ReleaseCapture();
                 // Push VISIBLE state if we were FOCUSED
@@ -593,13 +593,13 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             }
             return 0;
         case WM_LBUTTONDOWN:
-            Logf("[SimXR] WM_LBUTTONDOWN: focused=%d", rt::g_session.isFocused.load());
+            Logf("[OXRWXR] WM_LBUTTONDOWN: focused=%d", rt::g_session.isFocused.load());
             if (rt::g_session.isFocused) {
                 rt::g_mouseCapture = true;
                 SetCapture(hWnd);
                 GetCursorPos(&rt::g_lastMousePos);
                 ShowCursor(FALSE);
-                Log("[SimXR] Mouse captured for look control");
+                Log("[OXRWXR] Mouse captured for look control");
             }
             return 0;
         case WM_LBUTTONUP:
@@ -671,11 +671,11 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
 
 static void ensurePreview(Session& s) {
     if (s.hwnd) return;
-    WNDCLASSW wc{}; wc.lpfnWndProc = WndProc; wc.hInstance = GetModuleHandleW(nullptr); wc.lpszClassName = L"OpenXR Simulator";
+    WNDCLASSW wc{}; wc.lpfnWndProc = WndProc; wc.hInstance = GetModuleHandleW(nullptr); wc.lpszClassName = L"OpenXR WXR";
     RegisterClassW(&wc);
-    s.hwnd = CreateWindowExW(0, wc.lpszClassName, L"OpenXR Simulator", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+    s.hwnd = CreateWindowExW(0, wc.lpszClassName, L"OpenXR WXR", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
                              CW_USEDEFAULT, CW_USEDEFAULT, (int)s.previewWidth, (int)s.previewHeight, nullptr, nullptr, wc.hInstance, nullptr);
-    Logf("[SimXR] ensurePreview: hwnd=%p size=%ux%u usesD3D12=%d", s.hwnd, s.previewWidth, s.previewHeight, s.usesD3D12);
+    Logf("[OXRWXR] ensurePreview: hwnd=%p size=%ux%u usesD3D12=%d", s.hwnd, s.previewWidth, s.previewHeight, s.usesD3D12);
 
     // Make sure window is shown and updated
     if (s.hwnd) {
@@ -685,10 +685,10 @@ static void ensurePreview(Session& s) {
         // Check if window has focus
         if (GetForegroundWindow() == s.hwnd) {
             s.isFocused = true;
-            Log("[SimXR] Window created with focus");
+            Log("[OXRWXR] Window created with focus");
         } else {
             s.isFocused = false;
-            Log("[SimXR] Window created without focus");
+            Log("[OXRWXR] Window created without focus");
         }
     }
 
@@ -707,14 +707,14 @@ extern "C" __declspec(dllexport) XrResult XRAPI_CALL xrNegotiateLoaderRuntimeInt
                                                                             XrNegotiateRuntimeRequest* runtimeRequest) {
     try {
         EnsureLogFile();
-        Log("\n[SimXR] ========== OpenXR Simulator Runtime Starting ==========\n");
+        Log("\n[OXRWXR] ========== OpenXR WXR Runtime Starting ==========\n");
         if (!loaderInfo || !runtimeRequest) {
-            Log("[SimXR] xrNegotiateLoaderRuntimeInterface: ERROR - null parameters");
+            Log("[OXRWXR] xrNegotiateLoaderRuntimeInterface: ERROR - null parameters");
             return XR_ERROR_INITIALIZATION_FAILED;
         }
         
-        Logf("[SimXR] xrNegotiateLoaderRuntimeInterface: loaderInfo=%p, runtimeRequest=%p", loaderInfo, runtimeRequest);
-        Logf("[SimXR]   Loader minInterfaceVersion=%u, maxInterfaceVersion=%u, minApiVersion=0x%X, maxApiVersion=0x%X",
+        Logf("[OXRWXR] xrNegotiateLoaderRuntimeInterface: loaderInfo=%p, runtimeRequest=%p", loaderInfo, runtimeRequest);
+        Logf("[OXRWXR]   Loader minInterfaceVersion=%u, maxInterfaceVersion=%u, minApiVersion=0x%X, maxApiVersion=0x%X",
              loaderInfo->minInterfaceVersion, loaderInfo->maxInterfaceVersion,
              loaderInfo->minApiVersion, loaderInfo->maxApiVersion);
         
@@ -722,11 +722,11 @@ extern "C" __declspec(dllexport) XrResult XRAPI_CALL xrNegotiateLoaderRuntimeInt
         runtimeRequest->getInstanceProcAddr = xrGetInstanceProcAddr_runtime;
         runtimeRequest->runtimeApiVersion = XR_CURRENT_API_VERSION;
         
-        Logf("[SimXR] xrNegotiateLoaderRuntimeInterface: SUCCESS - runtimeApiVersion=0x%X (%u)", 
+        Logf("[OXRWXR] xrNegotiateLoaderRuntimeInterface: SUCCESS - runtimeApiVersion=0x%X (%u)", 
              runtimeRequest->runtimeApiVersion, runtimeRequest->runtimeApiVersion);
         return XR_SUCCESS;
     } catch (...) {
-        Log("[SimXR] xrNegotiateLoaderRuntimeInterface: EXCEPTION caught!");
+        Log("[OXRWXR] xrNegotiateLoaderRuntimeInterface: EXCEPTION caught!");
         return XR_ERROR_INITIALIZATION_FAILED;
     }
 }
@@ -734,7 +734,7 @@ extern "C" __declspec(dllexport) XrResult XRAPI_CALL xrNegotiateLoaderRuntimeInt
 // xrGetD3D12GraphicsRequirementsKHR (XR_KHR_D3D12_enable)
 static XrResult XRAPI_PTR xrGetD3D12GraphicsRequirementsKHR_runtime(
     XrInstance instance, XrSystemId systemId, XrGraphicsRequirementsD3D12KHR* req) {
-    Logf("[SimXR] xrGetD3D12GraphicsRequirementsKHR called: instance=%p, systemId=%llu, req=%p",
+    Logf("[OXRWXR] xrGetD3D12GraphicsRequirementsKHR called: instance=%p, systemId=%llu, req=%p",
          instance, (unsigned long long)systemId, req);
     if (!req) return XR_ERROR_VALIDATION_FAILURE;
 
@@ -755,25 +755,25 @@ static XrResult XRAPI_PTR xrGetD3D12GraphicsRequirementsKHR_runtime(
         break;
     }
     req->minFeatureLevel = D3D_FEATURE_LEVEL_11_0;
-    Log("[SimXR] xrGetD3D12GraphicsRequirementsKHR: SUCCESS");
+    Log("[OXRWXR] xrGetD3D12GraphicsRequirementsKHR: SUCCESS");
     return XR_SUCCESS;
 }
 // xrGetD3D11GraphicsRequirementsKHR (XR_KHR_D3D11_enable)
 static XrResult XRAPI_PTR xrGetD3D11GraphicsRequirementsKHR_runtime(
     XrInstance instance, XrSystemId systemId, XrGraphicsRequirementsD3D11KHR* req) {
-    Logf("[SimXR] xrGetD3D11GraphicsRequirementsKHR called: instance=%p, systemId=%llu, req=%p",
+    Logf("[OXRWXR] xrGetD3D11GraphicsRequirementsKHR called: instance=%p, systemId=%llu, req=%p",
          instance, (unsigned long long)systemId, req);
     if (!req) {
-        Log("[SimXR] xrGetD3D11GraphicsRequirementsKHR: ERROR - null req");
+        Log("[OXRWXR] xrGetD3D11GraphicsRequirementsKHR: ERROR - null req");
         return XR_ERROR_VALIDATION_FAILURE;
     }
     
-    Logf("[SimXR] xrGetD3D11GraphicsRequirementsKHR: req struct size = %zu, expected = %zu",
+    Logf("[OXRWXR] xrGetD3D11GraphicsRequirementsKHR: req struct size = %zu, expected = %zu",
          sizeof(*req), sizeof(XrGraphicsRequirementsD3D11KHR));
     
     // Check if the struct type is already set (Unity might pre-fill it)
     if (req->type != 0) {
-        Logf("[SimXR] xrGetD3D11GraphicsRequirementsKHR: req->type already set to %d", req->type);
+        Logf("[OXRWXR] xrGetD3D11GraphicsRequirementsKHR: req->type already set to %d", req->type);
     }
     
     // Zero initialize the entire structure first
@@ -784,7 +784,7 @@ static XrResult XRAPI_PTR xrGetD3D11GraphicsRequirementsKHR_runtime(
     Microsoft::WRL::ComPtr<IDXGIFactory1> f;
     HRESULT hr = CreateDXGIFactory1(IID_PPV_ARGS(f.GetAddressOf()));
     if (FAILED(hr)) { 
-        Logf("[SimXR] CreateDXGIFactory1 failed: 0x%08X", hr); 
+        Logf("[OXRWXR] CreateDXGIFactory1 failed: 0x%08X", hr); 
         return XR_ERROR_RUNTIME_FAILURE; 
     }
     
@@ -815,11 +815,11 @@ static XrResult XRAPI_PTR xrGetD3D11GraphicsRequirementsKHR_runtime(
             char descAscii[128];
             wcstombs(descAscii, descStr, sizeof(descAscii));
             descAscii[sizeof(descAscii)-1] = '\0';
-            Logf("[SimXR] Found hardware adapter: %s", descAscii);
-            Logf("[SimXR]   LUID: High=%ld, Low=%lu", 
+            Logf("[OXRWXR] Found hardware adapter: %s", descAscii);
+            Logf("[OXRWXR]   LUID: High=%ld, Low=%lu", 
                  (long)d.AdapterLuid.HighPart, 
                  (unsigned long)d.AdapterLuid.LowPart);
-            Logf("[SimXR]   Dedicated Video Memory: %llu MB", 
+            Logf("[OXRWXR]   Dedicated Video Memory: %llu MB", 
                  (unsigned long long)(d.DedicatedVideoMemory / (1024*1024)));
         }
     }
@@ -832,32 +832,32 @@ static XrResult XRAPI_PTR xrGetD3D11GraphicsRequirementsKHR_runtime(
         rt::g_adapterLuid = bestDesc.AdapterLuid;
         rt::g_adapterLuidSet = true;
         
-        Logf("[SimXR] xrGetD3D11GraphicsRequirementsKHR: Returning:");
-        Logf("[SimXR]   type = %d (expected %d)", req->type, XR_TYPE_GRAPHICS_REQUIREMENTS_D3D11_KHR);
-        Logf("[SimXR]   next = %p", req->next);
-        Logf("[SimXR]   adapterLuid.HighPart = %ld (0x%08X)", 
+        Logf("[OXRWXR] xrGetD3D11GraphicsRequirementsKHR: Returning:");
+        Logf("[OXRWXR]   type = %d (expected %d)", req->type, XR_TYPE_GRAPHICS_REQUIREMENTS_D3D11_KHR);
+        Logf("[OXRWXR]   next = %p", req->next);
+        Logf("[OXRWXR]   adapterLuid.HighPart = %ld (0x%08X)", 
              (long)req->adapterLuid.HighPart, (unsigned)req->adapterLuid.HighPart);
-        Logf("[SimXR]   adapterLuid.LowPart = %lu (0x%08X)", 
+        Logf("[OXRWXR]   adapterLuid.LowPart = %lu (0x%08X)", 
              (unsigned long)req->adapterLuid.LowPart, (unsigned)req->adapterLuid.LowPart);
-        Logf("[SimXR]   minFeatureLevel = 0x%X (D3D_FEATURE_LEVEL_11_0 = 0x%X)", 
+        Logf("[OXRWXR]   minFeatureLevel = 0x%X (D3D_FEATURE_LEVEL_11_0 = 0x%X)", 
              req->minFeatureLevel, D3D_FEATURE_LEVEL_11_0);
         
-        Log("[SimXR] xrGetD3D11GraphicsRequirementsKHR: SUCCESS - Returning XR_SUCCESS");
+        Log("[OXRWXR] xrGetD3D11GraphicsRequirementsKHR: SUCCESS - Returning XR_SUCCESS");
         return XR_SUCCESS;
     }
     
     // No hardware adapter found, this is an error for VR
-    Log("[SimXR] xrGetD3D11GraphicsRequirementsKHR: ERROR - No hardware graphics adapter found");
+    Log("[OXRWXR] xrGetD3D11GraphicsRequirementsKHR: ERROR - No hardware graphics adapter found");
     return XR_ERROR_SYSTEM_INVALID;
 }
 
 // xrGetOpenGLGraphicsRequirementsKHR (XR_KHR_opengl_enable)
 static XrResult XRAPI_PTR xrGetOpenGLGraphicsRequirementsKHR_runtime(
     XrInstance instance, XrSystemId systemId, XrGraphicsRequirementsOpenGLKHR* req) {
-    Logf("[SimXR] xrGetOpenGLGraphicsRequirementsKHR called: instance=%p, systemId=%llu, req=%p",
+    Logf("[OXRWXR] xrGetOpenGLGraphicsRequirementsKHR called: instance=%p, systemId=%llu, req=%p",
          instance, (unsigned long long)systemId, req);
     if (!req) {
-        Log("[SimXR] xrGetOpenGLGraphicsRequirementsKHR: ERROR - null req");
+        Log("[OXRWXR] xrGetOpenGLGraphicsRequirementsKHR: ERROR - null req");
         return XR_ERROR_VALIDATION_FAILURE;
     }
 
@@ -871,7 +871,7 @@ static XrResult XRAPI_PTR xrGetOpenGLGraphicsRequirementsKHR_runtime(
     req->minApiVersionSupported = XR_MAKE_VERSION(4, 0, 0);
     req->maxApiVersionSupported = XR_MAKE_VERSION(4, 6, 0);
 
-    Logf("[SimXR] xrGetOpenGLGraphicsRequirementsKHR: min=%d.%d.%d, max=%d.%d.%d",
+    Logf("[OXRWXR] xrGetOpenGLGraphicsRequirementsKHR: min=%d.%d.%d, max=%d.%d.%d",
          XR_VERSION_MAJOR(req->minApiVersionSupported),
          XR_VERSION_MINOR(req->minApiVersionSupported),
          XR_VERSION_PATCH(req->minApiVersionSupported),
@@ -879,7 +879,7 @@ static XrResult XRAPI_PTR xrGetOpenGLGraphicsRequirementsKHR_runtime(
          XR_VERSION_MINOR(req->maxApiVersionSupported),
          XR_VERSION_PATCH(req->maxApiVersionSupported));
 
-    Log("[SimXR] xrGetOpenGLGraphicsRequirementsKHR: SUCCESS");
+    Log("[OXRWXR] xrGetOpenGLGraphicsRequirementsKHR: SUCCESS");
     return XR_SUCCESS;
 }
 
@@ -897,7 +897,7 @@ static const char* kSupportedExtensions[] = {
 static XrResult XRAPI_PTR xrEnumerateApiLayerProperties_runtime(uint32_t propertyCapacityInput,
                                                                 uint32_t* propertyCountOutput,
                                                                 XrApiLayerProperties* properties) {
-    Log("[SimXR] xrEnumerateApiLayerProperties called");
+    Log("[OXRWXR] xrEnumerateApiLayerProperties called");
     // Runtime doesn't provide API layers, only extensions
     if (propertyCountOutput) *propertyCountOutput = 0;
     return XR_SUCCESS;
@@ -915,7 +915,7 @@ static XrResult XRAPI_PTR xrEnumerateInstanceExtensionProperties_runtime(const c
             std::strncpy(properties[i].extensionName, kSupportedExtensions[i], XR_MAX_EXTENSION_NAME_SIZE - 1);
             properties[i].extensionName[XR_MAX_EXTENSION_NAME_SIZE - 1] = '\0';
             properties[i].extensionVersion = 1;
-            Logf("[SimXR] ext[%u]=%s", i, properties[i].extensionName);
+            Logf("[OXRWXR] ext[%u]=%s", i, properties[i].extensionName);
         }
     }
     return XR_SUCCESS;
@@ -926,7 +926,7 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
     // applicationName may not be null-terminated
     char appName[XR_MAX_APPLICATION_NAME_SIZE + 1] = {0};
     memcpy(appName, createInfo->applicationInfo.applicationName, XR_MAX_APPLICATION_NAME_SIZE);
-    Logf("[SimXR] xrCreateInstance: app=%s version=%u", 
+    Logf("[OXRWXR] xrCreateInstance: app=%s version=%u", 
          appName,
          createInfo->applicationInfo.applicationVersion);
     rt::g_instance = {};
@@ -943,24 +943,24 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
             }
         }
         if (!supported) {
-            Logf("[SimXR] xrCreateInstance: ERROR - Unsupported extension %s", createInfo->enabledExtensionNames[i]);
+            Logf("[OXRWXR] xrCreateInstance: ERROR - Unsupported extension %s", createInfo->enabledExtensionNames[i]);
             return XR_ERROR_EXTENSION_NOT_PRESENT;
         }
         rt::g_instance.enabledExtensions.emplace_back(createInfo->enabledExtensionNames[i]);
-        Logf("[SimXR]   enabledExt[%u]=%s", i, createInfo->enabledExtensionNames[i]);
+        Logf("[OXRWXR]   enabledExt[%u]=%s", i, createInfo->enabledExtensionNames[i]);
     }
     rt::g_instance.handle = (XrInstance)1;  // Set a valid handle
     *instance = rt::g_instance.handle;
-    Log("[SimXR] xrCreateInstance: SUCCESS");
+    Log("[OXRWXR] xrCreateInstance: SUCCESS");
     return XR_SUCCESS;
 }
 
 static XrResult XRAPI_PTR xrDestroyInstance_runtime(XrInstance instance) {
-    Logf("[SimXR] xrDestroyInstance called: instance=%p", instance);
+    Logf("[OXRWXR] xrDestroyInstance called: instance=%p", instance);
 
     // Clear the global instance
     if (instance == rt::g_instance.handle) {
-        Log("[SimXR] xrDestroyInstance: Clearing global instance");
+        Log("[OXRWXR] xrDestroyInstance: Clearing global instance");
         rt::g_instance = {};
 
         // MUST destroy the window before DLL unloads!
@@ -969,7 +969,7 @@ static XrResult XRAPI_PTR xrDestroyInstance_runtime(XrInstance instance) {
         {
             std::lock_guard<std::mutex> lock(rt::g_windowMutex);
             if (rt::g_persistentWindow) {
-                Log("[SimXR] xrDestroyInstance: Destroying preview window");
+                Log("[OXRWXR] xrDestroyInstance: Destroying preview window");
                 DestroyWindow(rt::g_persistentWindow);
                 rt::g_persistentWindow = nullptr;
             }
@@ -982,15 +982,15 @@ static XrResult XRAPI_PTR xrDestroyInstance_runtime(XrInstance instance) {
 
         // Unregister window class so it doesn't have dangling WndProc
         if (rt::g_windowClassRegistered) {
-            UnregisterClassW(L"OpenXR Simulator", GetModuleHandleW(nullptr));
+            UnregisterClassW(L"OpenXR WXR", GetModuleHandleW(nullptr));
             rt::g_windowClassRegistered = false;
-            Log("[SimXR] xrDestroyInstance: Window class unregistered");
+            Log("[OXRWXR] xrDestroyInstance: Window class unregistered");
         }
-        Log("[SimXR] xrDestroyInstance: Window destroyed for safe DLL unload");
+        Log("[OXRWXR] xrDestroyInstance: Window destroyed for safe DLL unload");
     }
 
-    Log("[SimXR] xrDestroyInstance: SUCCESS - Returning XR_SUCCESS");
-    Log("[SimXR] ========== Instance Destroyed - Waiting for new instance ==========");
+    Log("[OXRWXR] xrDestroyInstance: SUCCESS - Returning XR_SUCCESS");
+    Log("[OXRWXR] ========== Instance Destroyed - Waiting for new instance ==========");
     return XR_SUCCESS;
 }
 
@@ -999,21 +999,21 @@ static XrResult XRAPI_PTR xrGetInstanceProperties_runtime(XrInstance, XrInstance
     props->type = XR_TYPE_INSTANCE_PROPERTIES;
     props->next = nullptr;
     props->runtimeVersion = XR_MAKE_VERSION(1, 0, 27);
-    strncpy(props->runtimeName, "OpenXR Simulator Runtime", XR_MAX_RUNTIME_NAME_SIZE - 1);
+    strncpy(props->runtimeName, "OpenXR WXR Runtime", XR_MAX_RUNTIME_NAME_SIZE - 1);
     props->runtimeName[XR_MAX_RUNTIME_NAME_SIZE - 1] = '\0';
-    Log("[SimXR] xrGetInstanceProperties: returning OpenXR Simulator Runtime");
+    Log("[OXRWXR] xrGetInstanceProperties: returning OpenXR WXR Runtime");
     return XR_SUCCESS;
 }
 
 static XrResult XRAPI_PTR xrGetSystem_runtime(XrInstance, const XrSystemGetInfo* info, XrSystemId* systemId) {
     if (!info || !systemId) return XR_ERROR_VALIDATION_FAILURE;
-    Logf("[SimXR] xrGetSystem: formFactor=%d", info->formFactor);
+    Logf("[OXRWXR] xrGetSystem: formFactor=%d", info->formFactor);
     if (info->formFactor != XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY) {
-        Log("[SimXR] xrGetSystem: ERROR - form factor not HMD");
+        Log("[OXRWXR] xrGetSystem: ERROR - form factor not HMD");
         return XR_ERROR_FORM_FACTOR_UNSUPPORTED;
     }
     *systemId = (XrSystemId)1; 
-    Log("[SimXR] xrGetSystem: SUCCESS -> systemId=1"); 
+    Log("[OXRWXR] xrGetSystem: SUCCESS -> systemId=1"); 
     return XR_SUCCESS;
 }
 
@@ -1021,7 +1021,7 @@ static XrResult XRAPI_PTR xrGetSystemProperties_runtime(XrInstance, XrSystemId, 
     if (!props) return XR_ERROR_VALIDATION_FAILURE;
     props->type = XR_TYPE_SYSTEM_PROPERTIES;
     props->next = nullptr;
-    strncpy(props->systemName, "OpenXR Simulator", XR_MAX_SYSTEM_NAME_SIZE - 1);
+    strncpy(props->systemName, "OpenXR WXR", XR_MAX_SYSTEM_NAME_SIZE - 1);
     props->systemName[XR_MAX_SYSTEM_NAME_SIZE - 1] = '\0';
     props->systemId = 1;
     props->vendorId = 0;  // 0 = unknown vendor (more standard than 0xFFFF)
@@ -1030,22 +1030,22 @@ static XrResult XRAPI_PTR xrGetSystemProperties_runtime(XrInstance, XrSystemId, 
     props->graphicsProperties.maxLayerCount = 16;
     props->trackingProperties.positionTracking = XR_TRUE;
     props->trackingProperties.orientationTracking = XR_TRUE;
-    Log("[SimXR] xrGetSystemProperties: returning OpenXR Simulator");
+    Log("[OXRWXR] xrGetSystemProperties: returning OpenXR WXR");
     return XR_SUCCESS;
 }
 
 static XrResult XRAPI_PTR xrEnumerateViewConfigurations_runtime(XrInstance, XrSystemId, uint32_t capacity, uint32_t* count, XrViewConfigurationType* types) {
-    Logf("[SimXR] xrEnumerateViewConfigurations called: capacity=%u", capacity);
+    Logf("[OXRWXR] xrEnumerateViewConfigurations called: capacity=%u", capacity);
     if (count) *count = 1;
     if (capacity >= 1 && types) {
         types[0] = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
-        Log("[SimXR] xrEnumerateViewConfigurations: Returning PRIMARY_STEREO");
+        Log("[OXRWXR] xrEnumerateViewConfigurations: Returning PRIMARY_STEREO");
     }
     return XR_SUCCESS;
 }
 
 static XrResult XRAPI_PTR xrEnumerateViewConfigurationViews_runtime(XrInstance, XrSystemId, XrViewConfigurationType viewType, uint32_t capacity, uint32_t* count, XrViewConfigurationView* views) {
-    Logf("[SimXR] xrEnumerateViewConfigurationViews called: viewType=%d, capacity=%u", (int)viewType, capacity);
+    Logf("[OXRWXR] xrEnumerateViewConfigurationViews called: viewType=%d, capacity=%u", (int)viewType, capacity);
     if (count) *count = 2;
     if (capacity >= 2 && views) {
         for (uint32_t i = 0; i < 2; ++i) {
@@ -1056,7 +1056,7 @@ static XrResult XRAPI_PTR xrEnumerateViewConfigurationViews_runtime(XrInstance, 
             views[i].recommendedSwapchainSampleCount = 1;
             views[i].maxImageRectWidth = 4096; views[i].maxImageRectHeight = 4096; views[i].maxSwapchainSampleCount = 1;
         }
-        Log("[SimXR] xrEnumerateViewConfigurationViews: Returned 2 views (1280x720 recommended)");
+        Log("[OXRWXR] xrEnumerateViewConfigurationViews: Returned 2 views (1280x720 recommended)");
     }
     return XR_SUCCESS;
 }
@@ -1071,14 +1071,14 @@ static XrResult XRAPI_PTR xrEnumerateEnvironmentBlendModes_runtime(
 static XrResult XRAPI_PTR xrCreateSession_runtime(XrInstance instance, const XrSessionCreateInfo* info, XrSession* session) {
     static int sessionCount = 0;
     sessionCount++;
-    Log("[SimXR] ============================================");
-    Logf("[SimXR] xrCreateSession called (call #%d, instance=%llu)", sessionCount, (unsigned long long)instance);
-    Log("[SimXR] ============================================");
+    Log("[OXRWXR] ============================================");
+    Logf("[OXRWXR] xrCreateSession called (call #%d, instance=%llu)", sessionCount, (unsigned long long)instance);
+    Log("[OXRWXR] ============================================");
     if (!info || !session) return XR_ERROR_VALIDATION_FAILURE;
     
     // Check if we already have an active session
     if (rt::g_session.handle != XR_NULL_HANDLE && rt::g_session.state != XR_SESSION_STATE_IDLE) {
-        Logf("[SimXR] xrCreateSession: ERROR - Session already exists (handle=%llu, state=%d)",
+        Logf("[OXRWXR] xrCreateSession: ERROR - Session already exists (handle=%llu, state=%d)",
             (unsigned long long)rt::g_session.handle, rt::g_session.state);
         // For now, reset the existing session to allow the new one
         // Reset session manually
@@ -1108,7 +1108,7 @@ static XrResult XRAPI_PTR xrCreateSession_runtime(XrInstance instance, const XrS
                 if (SUCCEEDED(dxgiDevice->GetAdapter(&adapter))) {
                     DXGI_ADAPTER_DESC desc;
                     adapter->GetDesc(&desc);
-                    Logf("[SimXR] xrCreateSession: App D3D11 device LUID=%llu/%llu", 
+                    Logf("[OXRWXR] xrCreateSession: App D3D11 device LUID=%llu/%llu", 
                          (unsigned long long)desc.AdapterLuid.HighPart,
                          (unsigned long long)desc.AdapterLuid.LowPart);
                 }
@@ -1125,7 +1125,7 @@ static XrResult XRAPI_PTR xrCreateSession_runtime(XrInstance instance, const XrS
             b->device->GetImmediateContext(rt::g_session.d3d11Context.GetAddressOf());
             // Window will be created lazily on first frame
             *session = rt::g_session.handle;
-            Logf("[SimXR] xrCreateSession: SUCCESS (D3D11, handle=%llu)", (unsigned long long)rt::g_session.handle);
+            Logf("[OXRWXR] xrCreateSession: SUCCESS (D3D11, handle=%llu)", (unsigned long long)rt::g_session.handle);
             // Push READY event into queue
             rt::PushState(rt::g_session.handle, XR_SESSION_STATE_READY);
             return XR_SUCCESS;
@@ -1139,7 +1139,7 @@ static XrResult XRAPI_PTR xrCreateSession_runtime(XrInstance instance, const XrS
             rt::g_session.previewSwapchain.Reset();
             rt::g_session.handle = (XrSession)(uintptr_t)(0x1000 + sessionCount);
             *session = rt::g_session.handle;
-            Logf("[SimXR] xrCreateSession: SUCCESS (D3D12, handle=%llu)", (unsigned long long)rt::g_session.handle);
+            Logf("[OXRWXR] xrCreateSession: SUCCESS (D3D12, handle=%llu)", (unsigned long long)rt::g_session.handle);
             rt::PushState(rt::g_session.handle, XR_SESSION_STATE_READY);
             return XR_SUCCESS;
         } else if (entry->type == XR_TYPE_GRAPHICS_BINDING_OPENGL_WIN32_KHR) {
@@ -1155,22 +1155,22 @@ static XrResult XRAPI_PTR xrCreateSession_runtime(XrInstance instance, const XrS
             rt::g_session.previewSwapchain.Reset();
             rt::g_session.handle = (XrSession)(uintptr_t)(0x1000 + sessionCount);
             *session = rt::g_session.handle;
-            Logf("[SimXR] xrCreateSession: SUCCESS (OpenGL, handle=%llu, hDC=%p, hGLRC=%p)",
+            Logf("[OXRWXR] xrCreateSession: SUCCESS (OpenGL, handle=%llu, hDC=%p, hGLRC=%p)",
                  (unsigned long long)rt::g_session.handle, bGL->hDC, bGL->hGLRC);
             rt::PushState(rt::g_session.handle, XR_SESSION_STATE_READY);
             return XR_SUCCESS;
         }
         entry = entry->next;
     }
-    Log("[SimXR] xrCreateSession: ERROR - No supported graphics binding found (D3D11/D3D12/OpenGL)");
+    Log("[OXRWXR] xrCreateSession: ERROR - No supported graphics binding found (D3D11/D3D12/OpenGL)");
     return XR_ERROR_GRAPHICS_DEVICE_INVALID;
 }
 
 
 static XrResult XRAPI_PTR xrDestroySession_runtime(XrSession s) {
-    Logf("[SimXR] xrDestroySession called (handle=%llu)", (unsigned long long)s);
+    Logf("[OXRWXR] xrDestroySession called (handle=%llu)", (unsigned long long)s);
     if (s != rt::g_session.handle) {
-        Logf("[SimXR] xrDestroySession: ERROR - Invalid handle (expected %llu)", 
+        Logf("[OXRWXR] xrDestroySession: ERROR - Invalid handle (expected %llu)", 
              (unsigned long long)rt::g_session.handle);
         return XR_ERROR_HANDLE_INVALID;
     }
@@ -1184,13 +1184,13 @@ static XrResult XRAPI_PTR xrDestroySession_runtime(XrSession s) {
             rt::g_persistentSwapchain = rt::g_session.previewSwapchain;
             rt::g_persistentWidth = rt::g_session.previewWidth;
             rt::g_persistentHeight = rt::g_session.previewHeight;
-            Log("[SimXR] xrDestroySession: Preserving window and swapchain for next session");
+            Log("[OXRWXR] xrDestroySession: Preserving window and swapchain for next session");
         } else if (rt::g_session.hwnd == rt::g_persistentWindow) {
             // Already using persistent window, just update the swapchain
             rt::g_persistentSwapchain = rt::g_session.previewSwapchain;
             rt::g_persistentWidth = rt::g_session.previewWidth;
             rt::g_persistentHeight = rt::g_session.previewHeight;
-            Log("[SimXR] xrDestroySession: Updating persistent swapchain");
+            Log("[OXRWXR] xrDestroySession: Updating persistent swapchain");
         }
     }
     
@@ -1211,7 +1211,7 @@ static XrResult XRAPI_PTR xrDestroySession_runtime(XrSession s) {
     rt::g_session.previewWidth = 1920;
     rt::g_session.previewHeight = 540;
     rt::g_session.isFocused = false;
-    Log("[SimXR] xrDestroySession: SUCCESS");
+    Log("[OXRWXR] xrDestroySession: SUCCESS");
     return XR_SUCCESS;
 }
 
@@ -1236,7 +1236,7 @@ static XrResult XRAPI_PTR xrEnumerateSwapchainFormats_runtime(XrSession, uint32_
             for (uint32_t i = 0; i < copyCount; ++i) {
                 formats[i] = supportedFormats[i];
             }
-            Logf("[SimXR] xrEnumerateSwapchainFormats(OpenGL): Returned %u formats (first: 0x%X)", copyCount, (int)formats[0]);
+            Logf("[OXRWXR] xrEnumerateSwapchainFormats(OpenGL): Returned %u formats (first: 0x%X)", copyCount, (int)formats[0]);
         }
         return XR_SUCCESS;
     }
@@ -1263,14 +1263,14 @@ static XrResult XRAPI_PTR xrEnumerateSwapchainFormats_runtime(XrSession, uint32_
         for (uint32_t i = 0; i < copyCount; ++i) {
             formats[i] = supportedFormats[i];
         }
-        Logf("[SimXR] xrEnumerateSwapchainFormats: Returned %u formats (first: %d)", copyCount, (int)formats[0]);
+        Logf("[OXRWXR] xrEnumerateSwapchainFormats: Returned %u formats (first: %d)", copyCount, (int)formats[0]);
     }
     return XR_SUCCESS;
 }
 
 static XrResult XRAPI_PTR xrCreateSwapchain_runtime(XrSession, const XrSwapchainCreateInfo* ci, XrSwapchain* sc) {
-    Log("[SimXR] ============================================");
-    Logf("[SimXR] xrCreateSwapchain called: format=%d, size=%ux%u, arraySize=%u, mipCount=%u, sampleCount=%u, usageFlags=0x%X",
+    Log("[OXRWXR] ============================================");
+    Logf("[OXRWXR] xrCreateSwapchain called: format=%d, size=%ux%u, arraySize=%u, mipCount=%u, sampleCount=%u, usageFlags=0x%X",
          ci ? (int)ci->format : -1, 
          ci ? ci->width : 0, 
          ci ? ci->height : 0, 
@@ -1282,22 +1282,22 @@ static XrResult XRAPI_PTR xrCreateSwapchain_runtime(XrSession, const XrSwapchain
     // Log specific usage flags
     if (ci && ci->usageFlags) {
         if (ci->usageFlags & XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT) 
-            Log("[SimXR]   - COLOR_ATTACHMENT");
+            Log("[OXRWXR]   - COLOR_ATTACHMENT");
         if (ci->usageFlags & XR_SWAPCHAIN_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) 
-            Log("[SimXR]   - DEPTH_STENCIL_ATTACHMENT");
+            Log("[OXRWXR]   - DEPTH_STENCIL_ATTACHMENT");
         if (ci->usageFlags & XR_SWAPCHAIN_USAGE_UNORDERED_ACCESS_BIT) 
-            Log("[SimXR]   - UNORDERED_ACCESS");
+            Log("[OXRWXR]   - UNORDERED_ACCESS");
         if (ci->usageFlags & XR_SWAPCHAIN_USAGE_TRANSFER_SRC_BIT) 
-            Log("[SimXR]   - TRANSFER_SRC");
+            Log("[OXRWXR]   - TRANSFER_SRC");
         if (ci->usageFlags & XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT) 
-            Log("[SimXR]   - TRANSFER_DST");
+            Log("[OXRWXR]   - TRANSFER_DST");
         if (ci->usageFlags & XR_SWAPCHAIN_USAGE_SAMPLED_BIT) 
-            Log("[SimXR]   - SAMPLED");
+            Log("[OXRWXR]   - SAMPLED");
         if (ci->usageFlags & XR_SWAPCHAIN_USAGE_MUTABLE_FORMAT_BIT) 
-            Log("[SimXR]   - MUTABLE_FORMAT");
+            Log("[OXRWXR]   - MUTABLE_FORMAT");
     }
     
-    Log("[SimXR] ============================================");
+    Log("[OXRWXR] ============================================");
     if (!ci || !sc) return XR_ERROR_VALIDATION_FAILURE;
     rt::Swapchain chain{}; 
     chain.handle = (XrSwapchain)(uintptr_t)(rt::g_swapchains.size() + 2);
@@ -1339,7 +1339,7 @@ static XrResult XRAPI_PTR xrCreateSwapchain_runtime(XrSession, const XrSwapchain
             ComPtr<ID3D12Resource> res;
             HRESULT hr = rt::g_session.d3d12Device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd, init, nullptr, IID_PPV_ARGS(res.GetAddressOf()));
             if (FAILED(hr)) {
-                Logf("[SimXR] CreateCommittedResource(D3D12)[%u] FAILED: 0x%08X", i, (unsigned)hr);
+                Logf("[OXRWXR] CreateCommittedResource(D3D12)[%u] FAILED: 0x%08X", i, (unsigned)hr);
                 return XR_ERROR_RUNTIME_FAILURE;
             }
             chain.images12.push_back(res);
@@ -1347,7 +1347,7 @@ static XrResult XRAPI_PTR xrCreateSwapchain_runtime(XrSession, const XrSwapchain
         }
         rt::g_swapchains.emplace(chain.handle, std::move(chain));
         *sc = chain.handle;
-        Logf("[SimXR] xrCreateSwapchain(D3D12): sc=%p fmt=%d %ux%u array=%u samples=%u", *sc, (int)ci->format, ci->width, ci->height, ci->arraySize, ci->sampleCount);
+        Logf("[OXRWXR] xrCreateSwapchain(D3D12): sc=%p fmt=%d %ux%u array=%u samples=%u", *sc, (int)ci->format, ci->width, ci->height, ci->arraySize, ci->sampleCount);
         return XR_SUCCESS;
     }
     // OpenGL path
@@ -1358,7 +1358,7 @@ static XrResult XRAPI_PTR xrCreateSwapchain_runtime(XrSession, const XrSwapchain
         // Check the current GL context state
         HGLRC currentRC = wglGetCurrentContext();
         HDC currentDC = wglGetCurrentDC();
-        Logf("[SimXR] OpenGL swapchain: currentRC=%p, currentDC=%p, sessionRC=%p, sessionDC=%p",
+        Logf("[OXRWXR] OpenGL swapchain: currentRC=%p, currentDC=%p, sessionRC=%p, sessionDC=%p",
              currentRC, currentDC, rt::g_session.glRC, rt::g_session.glDC);
 
         // If the app's context is already current, use it directly
@@ -1368,20 +1368,20 @@ static XrResult XRAPI_PTR xrCreateSwapchain_runtime(XrSession, const XrSwapchain
         bool contextSwitched = false;
 
         if (currentRC != rt::g_session.glRC) {
-            Log("[SimXR] Context mismatch - switching to app's context");
+            Log("[OXRWXR] Context mismatch - switching to app's context");
             if (!wglMakeCurrent(rt::g_session.glDC, rt::g_session.glRC)) {
-                Logf("[SimXR] xrCreateSwapchain(OpenGL): wglMakeCurrent failed (error=%lu)", GetLastError());
+                Logf("[OXRWXR] xrCreateSwapchain(OpenGL): wglMakeCurrent failed (error=%lu)", GetLastError());
                 return XR_ERROR_RUNTIME_FAILURE;
             }
             contextSwitched = true;
         } else {
-            Log("[SimXR] App's GL context is already current - good!");
+            Log("[OXRWXR] App's GL context is already current - good!");
         }
 
         // Log the GL version and renderer for debugging
         const char* glVersion = (const char*)glGetString(GL_VERSION);
         const char* glRenderer = (const char*)glGetString(GL_RENDERER);
-        Logf("[SimXR] GL context: version=%s, renderer=%s",
+        Logf("[OXRWXR] GL context: version=%s, renderer=%s",
              glVersion ? glVersion : "(null)", glRenderer ? glRenderer : "(null)");
 
         // Map format to OpenGL internal format and pixel format
@@ -1455,7 +1455,7 @@ static XrResult XRAPI_PTR xrCreateSwapchain_runtime(XrSession, const XrSwapchain
                     glTexImage2D(GL_TEXTURE_2D, 0, glInternalFormat,
                                  chain.width, chain.height, 0,
                                  GL_RGBA, GL_UNSIGNED_BYTE, initData.data());
-                    Logf("[SimXR] Initialized tex %u with GREEN data", tex);
+                    Logf("[OXRWXR] Initialized tex %u with GREEN data", tex);
                 }
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -1464,7 +1464,7 @@ static XrResult XRAPI_PTR xrCreateSwapchain_runtime(XrSession, const XrSwapchain
 
             GLenum err = glGetError();
             if (err != GL_NO_ERROR) {
-                Logf("[SimXR] OpenGL texture creation error[%u]: 0x%X", i, err);
+                Logf("[OXRWXR] OpenGL texture creation error[%u]: 0x%X", i, err);
                 if (contextSwitched) wglMakeCurrent(prevDC, prevRC);
                 return XR_ERROR_RUNTIME_FAILURE;
             }
@@ -1472,7 +1472,7 @@ static XrResult XRAPI_PTR xrCreateSwapchain_runtime(XrSession, const XrSwapchain
             // Verify the texture is valid
             GLboolean isValid = glIsTexture(tex);
             chain.imagesGL.push_back(tex);
-            Logf("[SimXR] Created GL texture[%u]: %u (format=0x%X, valid=%d)", i, tex, glInternalFormat, isValid);
+            Logf("[OXRWXR] Created GL texture[%u]: %u (format=0x%X, valid=%d)", i, tex, glInternalFormat, isValid);
 
             // DEBUG: Immediately read back the texture to verify it has the correct content
             if (!isDepthFormat && EnsureGLFramebufferFuncs()) {
@@ -1484,10 +1484,10 @@ static XrResult XRAPI_PTR xrCreateSwapchain_runtime(XrSession, const XrSwapchain
                 if (g_glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
                     uint8_t pixel[4] = {0};
                     glReadPixels(chain.width/2, chain.height/2, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
-                    Logf("[SimXR]   Immediate readback tex=%u: pixel=[%d,%d,%d,%d]",
+                    Logf("[OXRWXR]   Immediate readback tex=%u: pixel=[%d,%d,%d,%d]",
                          tex, pixel[0], pixel[1], pixel[2], pixel[3]);
                 } else {
-                    Logf("[SimXR]   Immediate readback tex=%u: FBO incomplete", tex);
+                    Logf("[OXRWXR]   Immediate readback tex=%u: FBO incomplete", tex);
                 }
 
                 g_glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -1497,13 +1497,13 @@ static XrResult XRAPI_PTR xrCreateSwapchain_runtime(XrSession, const XrSwapchain
 
         // Restore previous context only if we switched
         if (contextSwitched) {
-            Log("[SimXR] Restoring previous GL context");
+            Log("[OXRWXR] Restoring previous GL context");
             wglMakeCurrent(prevDC, prevRC);
         }
 
         rt::g_swapchains.emplace(chain.handle, std::move(chain));
         *sc = chain.handle;
-        Logf("[SimXR] xrCreateSwapchain(OpenGL): sc=%p fmt=%d %ux%u array=%u imageCount=%u",
+        Logf("[OXRWXR] xrCreateSwapchain(OpenGL): sc=%p fmt=%d %ux%u array=%u imageCount=%u",
              *sc, (int)ci->format, ci->width, ci->height, ci->arraySize, chain.imageCount);
         return XR_SUCCESS;
     }
@@ -1569,33 +1569,33 @@ static XrResult XRAPI_PTR xrCreateSwapchain_runtime(XrSession, const XrSwapchain
     td.MiscFlags = 0;
     
     // Log the texture description for debugging
-    Logf("[SimXR] Creating swapchain textures: Format=%d, %ux%u, Array=%u, Mips=%u, Samples=%u",
+    Logf("[OXRWXR] Creating swapchain textures: Format=%d, %ux%u, Array=%u, Mips=%u, Samples=%u",
          td.Format, td.Width, td.Height, td.ArraySize, td.MipLevels, td.SampleDesc.Count);
     chain.imageCount = 3;
     for (uint32_t i = 0; i < chain.imageCount; ++i) {
         ComPtr<ID3D11Texture2D> tex; 
         HRESULT hr = rt::g_session.d3d11Device->CreateTexture2D(&td, nullptr, tex.GetAddressOf());
         if (FAILED(hr)) { 
-            Logf("[SimXR] CreateTexture2D[%u] FAILED: hr=0x%08X", i, (unsigned)hr);
-            Logf("[SimXR]   Format=%d, Size=%ux%u, Array=%u, Mips=%u, Samples=%u, BindFlags=0x%X",
+            Logf("[OXRWXR] CreateTexture2D[%u] FAILED: hr=0x%08X", i, (unsigned)hr);
+            Logf("[OXRWXR]   Format=%d, Size=%ux%u, Array=%u, Mips=%u, Samples=%u, BindFlags=0x%X",
                  td.Format, td.Width, td.Height, td.ArraySize, td.MipLevels, td.SampleDesc.Count, td.BindFlags);
             
             // Try to provide more specific error info
             if (hr == E_INVALIDARG) {
-                Log("[SimXR]   ERROR: E_INVALIDARG - Invalid texture parameters");
+                Log("[OXRWXR]   ERROR: E_INVALIDARG - Invalid texture parameters");
                 // Check common issues
-                if (td.ArraySize == 0) Log("[SimXR]   - ArraySize is 0");
-                if (td.Width == 0 || td.Height == 0) Log("[SimXR]   - Invalid dimensions");
-                if (td.MipLevels == 0) Log("[SimXR]   - MipLevels is 0");
+                if (td.ArraySize == 0) Log("[OXRWXR]   - ArraySize is 0");
+                if (td.Width == 0 || td.Height == 0) Log("[OXRWXR]   - Invalid dimensions");
+                if (td.MipLevels == 0) Log("[OXRWXR]   - MipLevels is 0");
             }
             return XR_ERROR_RUNTIME_FAILURE; 
         }
-        Logf("[SimXR] Created swapchain texture[%u]: %p", i, tex.Get());
+        Logf("[OXRWXR] Created swapchain texture[%u]: %p", i, tex.Get());
         chain.images.push_back(std::move(tex));
     }
     rt::g_swapchains.emplace(chain.handle, std::move(chain));
     *sc = chain.handle;
-    Logf("[SimXR] xrCreateSwapchain: sc=%p fmt=%d %ux%u array=%u samples=%u", *sc, (int)ci->format, ci->width, ci->height, ci->arraySize, ci->sampleCount);
+    Logf("[OXRWXR] xrCreateSwapchain: sc=%p fmt=%d %ux%u array=%u samples=%u", *sc, (int)ci->format, ci->width, ci->height, ci->arraySize, ci->sampleCount);
     return XR_SUCCESS;
 }
 
@@ -1608,7 +1608,7 @@ static XrResult XRAPI_PTR xrEnumerateSwapchainImages_runtime(XrSwapchain sc, uin
             auto* arr = reinterpret_cast<XrSwapchainImageD3D12KHR*>(images);
             for (uint32_t i = 0; i < n; ++i) { arr[i].type = XR_TYPE_SWAPCHAIN_IMAGE_D3D12_KHR; arr[i].texture = it->second.images12[i].Get(); }
         }
-        Logf("[SimXR] xrEnumerateSwapchainImages(D3D12): sc=%p count=%u", sc, n);
+        Logf("[OXRWXR] xrEnumerateSwapchainImages(D3D12): sc=%p count=%u", sc, n);
         return XR_SUCCESS;
     } else if (it->second.backend == rt::Swapchain::Backend::OpenGL) {
         const uint32_t n = (uint32_t)it->second.imagesGL.size();
@@ -1620,7 +1620,7 @@ static XrResult XRAPI_PTR xrEnumerateSwapchainImages_runtime(XrSwapchain sc, uin
                 arr[i].image = it->second.imagesGL[i];
             }
             // DEBUG: Log the texture IDs being returned AND verify content still matches
-            Logf("[SimXR] xrEnumerateSwapchainImages(OpenGL): sc=%p texIDs=[%u,%u,%u]",
+            Logf("[OXRWXR] xrEnumerateSwapchainImages(OpenGL): sc=%p texIDs=[%u,%u,%u]",
                  sc, n > 0 ? arr[0].image : 0, n > 1 ? arr[1].image : 0, n > 2 ? arr[2].image : 0);
 
             // DEBUG: Read first texture to verify it still has content
@@ -1633,14 +1633,14 @@ static XrResult XRAPI_PTR xrEnumerateSwapchainImages_runtime(XrSwapchain sc, uin
                 if (g_glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
                     uint8_t pixel[4] = {0};
                     glReadPixels(0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
-                    Logf("[SimXR]   After enumerate: tex=%u pixel=[%d,%d,%d,%d]",
+                    Logf("[OXRWXR]   After enumerate: tex=%u pixel=[%d,%d,%d,%d]",
                          checkTex, pixel[0], pixel[1], pixel[2], pixel[3]);
                 }
                 g_glBindFramebuffer(GL_FRAMEBUFFER, 0);
                 g_glDeleteFramebuffers(1, &checkFBO);
             }
         } else {
-            Logf("[SimXR] xrEnumerateSwapchainImages(OpenGL): sc=%p count=%u (query only)", sc, n);
+            Logf("[OXRWXR] xrEnumerateSwapchainImages(OpenGL): sc=%p count=%u (query only)", sc, n);
         }
         return XR_SUCCESS;
     } else {
@@ -1650,7 +1650,7 @@ static XrResult XRAPI_PTR xrEnumerateSwapchainImages_runtime(XrSwapchain sc, uin
             auto* arr = reinterpret_cast<XrSwapchainImageD3D11KHR*>(images);
             for (uint32_t i = 0; i < n; ++i) { arr[i].type = XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR; arr[i].texture = it->second.images[i].Get(); }
         }
-        Logf("[SimXR] xrEnumerateSwapchainImages(D3D11): sc=%p count=%u", sc, n);
+        Logf("[OXRWXR] xrEnumerateSwapchainImages(D3D11): sc=%p count=%u", sc, n);
         return XR_SUCCESS;
     }
 }
@@ -1665,7 +1665,7 @@ static XrResult XRAPI_PTR xrAcquireSwapchainImage_runtime(XrSwapchain sc, const 
     
     static int acquireCount = 0;
     if (++acquireCount % 60 == 1) {  // Log every 60 calls
-        Logf("[SimXR] xrAcquireSwapchainImage: sc=%p idx=%u (format=%d, %ux%u)", 
+        Logf("[OXRWXR] xrAcquireSwapchainImage: sc=%p idx=%u (format=%d, %ux%u)", 
              sc, i, (int)ch.format, ch.width, ch.height);
     }
     return XR_SUCCESS;
@@ -1681,7 +1681,7 @@ static XrResult XRAPI_PTR xrReleaseSwapchainImage_runtime(XrSwapchain sc, const 
     static int releaseCount = 0;
     bool shouldLog = (++releaseCount <= 10);
     if (shouldLog || releaseCount % 60 == 1) {
-        Logf("[SimXR] xrReleaseSwapchainImage: sc=%p released=%u", sc, ch.lastReleased);
+        Logf("[OXRWXR] xrReleaseSwapchainImage: sc=%p released=%u", sc, ch.lastReleased);
 
         // DEBUG: Read texture content at release time to verify it has content
         if (ch.backend == rt::Swapchain::Backend::OpenGL && !ch.imagesGL.empty() && ch.lastReleased < ch.imagesGL.size()) {
@@ -1690,14 +1690,14 @@ static XrResult XRAPI_PTR xrReleaseSwapchainImage_runtime(XrSwapchain sc, const 
             // Check and log current GL context
             HGLRC currentRC = wglGetCurrentContext();
             HDC currentDC = wglGetCurrentDC();
-            Logf("[SimXR]   At release: currentRC=%p, currentDC=%p, sessionRC=%p, sessionDC=%p",
+            Logf("[OXRWXR]   At release: currentRC=%p, currentDC=%p, sessionRC=%p, sessionDC=%p",
                  currentRC, currentDC, rt::g_session.glRC, rt::g_session.glDC);
 
             // Ensure the session's GL context is current before reading
             HGLRC savedRC = currentRC;
             HDC savedDC = currentDC;
             if (currentRC != rt::g_session.glRC && rt::g_session.glRC && rt::g_session.glDC) {
-                Logf("[SimXR]   At release: Switching to session GL context");
+                Logf("[OXRWXR]   At release: Switching to session GL context");
                 wglMakeCurrent(rt::g_session.glDC, rt::g_session.glRC);
             }
 
@@ -1774,7 +1774,7 @@ static XrResult XRAPI_PTR xrReleaseSwapchainImage_runtime(XrSwapchain sc, const 
                 glBindTexture(GL_TEXTURE_2D, 0);
 
                 GLenum glError2 = glGetError();
-                Logf("[SimXR]   At release: tex=%u isValid=%d err1=0x%X err2=0x%X boundFBO=%d currPx=[%d,%d,%d,%d] newPx=[%d,%d,%d,%d] texPx=[%d,%d,%d,%d] size=%dx%d fmt=0x%X",
+                Logf("[OXRWXR]   At release: tex=%u isValid=%d err1=0x%X err2=0x%X boundFBO=%d currPx=[%d,%d,%d,%d] newPx=[%d,%d,%d,%d] texPx=[%d,%d,%d,%d] size=%dx%d fmt=0x%X",
                      glTex, (int)isValidTex, glError1, glError2, currentBoundFBO,
                      currentFboPixel[0], currentFboPixel[1], currentFboPixel[2], currentFboPixel[3],
                      fboPixel[0], fboPixel[1], fboPixel[2], fboPixel[3],
@@ -1893,7 +1893,7 @@ namespace rt {
             case XR_SESSION_STATE_LOSS_PENDING: stateName = "LOSS_PENDING"; break;
             case XR_SESSION_STATE_EXITING: stateName = "EXITING"; break;
         }
-        Logf("[SimXR] PushState: Session %llu -> %s", (unsigned long long)s, stateName);
+        Logf("[OXRWXR] PushState: Session %llu -> %s", (unsigned long long)s, stateName);
         
         XrEventDataSessionStateChanged e{XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED};
         e.session = s; e.state = ns; e.time = 0;
@@ -1902,7 +1902,7 @@ namespace rt {
         buf.type = XR_TYPE_EVENT_DATA_BUFFER;  // Set the base type
         std::memcpy(&buf, &e, sizeof(e));
         g_eventQueue.push_back(buf);
-        Logf("[SimXR] Event queue now has %zu events", g_eventQueue.size());
+        Logf("[OXRWXR] Event queue now has %zu events", g_eventQueue.size());
     }
 }
 static XrResult XRAPI_PTR xrPollEvent_runtime(XrInstance, XrEventDataBuffer* b) {
@@ -1910,13 +1910,13 @@ static XrResult XRAPI_PTR xrPollEvent_runtime(XrInstance, XrEventDataBuffer* b) 
     pollCount++;
     
     if (pollCount <= 5) {  // Log first few polls
-        Logf("[SimXR] xrPollEvent called (#%d), queue size=%zu", pollCount, rt::g_eventQueue.size());
+        Logf("[OXRWXR] xrPollEvent called (#%d), queue size=%zu", pollCount, rt::g_eventQueue.size());
     }
     
     if (!b) return XR_ERROR_VALIDATION_FAILURE;
     if (rt::g_eventQueue.empty()) {
         if (pollCount <= 5) {
-            Log("[SimXR] xrPollEvent: No events available (XR_EVENT_UNAVAILABLE)");
+            Log("[OXRWXR] xrPollEvent: No events available (XR_EVENT_UNAVAILABLE)");
         }
         return XR_EVENT_UNAVAILABLE;
     }
@@ -1938,18 +1938,18 @@ static XrResult XRAPI_PTR xrPollEvent_runtime(XrInstance, XrEventDataBuffer* b) 
             case XR_SESSION_STATE_LOSS_PENDING: stateName = "LOSS_PENDING"; break;
             case XR_SESSION_STATE_EXITING: stateName = "EXITING"; break;
         }
-        Logf("[SimXR] xrPollEvent: Delivering SESSION_STATE_CHANGED -> %s (session=%llu, %zu events left)", 
+        Logf("[OXRWXR] xrPollEvent: Delivering SESSION_STATE_CHANGED -> %s (session=%llu, %zu events left)", 
             stateName, (unsigned long long)stateEvent->session, rt::g_eventQueue.size());
     } else {
-        Logf("[SimXR] xrPollEvent: Delivering event type %d (%zu events left)", header->type, rt::g_eventQueue.size());
+        Logf("[OXRWXR] xrPollEvent: Delivering event type %d (%zu events left)", header->type, rt::g_eventQueue.size());
     }
     return XR_SUCCESS;
 }
 static XrResult XRAPI_PTR xrBeginSession_runtime(XrSession s, const XrSessionBeginInfo*) { 
-    Log("[SimXR] ============================================");
-    Logf("[SimXR] xrBeginSession called (session=%llu)", (unsigned long long)s);
-    Log("[SimXR] Session started - moving to SYNCHRONIZED/VISIBLE states");
-    Log("[SimXR] ============================================");
+    Log("[OXRWXR] ============================================");
+    Logf("[OXRWXR] xrBeginSession called (session=%llu)", (unsigned long long)s);
+    Log("[OXRWXR] Session started - moving to SYNCHRONIZED/VISIBLE states");
+    Log("[OXRWXR] ============================================");
     rt::PushState(s, XR_SESSION_STATE_SYNCHRONIZED); 
     rt::PushState(s, XR_SESSION_STATE_VISIBLE);
     // Only push FOCUSED if window is actually active/focused
@@ -1958,7 +1958,7 @@ static XrResult XRAPI_PTR xrBeginSession_runtime(XrSession s, const XrSessionBeg
     }
     return XR_SUCCESS; 
 }
-static XrResult XRAPI_PTR xrEndSession_runtime(XrSession s) { Log("[SimXR] xrEndSession"); rt::PushState(s, XR_SESSION_STATE_STOPPING); rt::PushState(s, XR_SESSION_STATE_IDLE); return XR_SUCCESS; }
+static XrResult XRAPI_PTR xrEndSession_runtime(XrSession s) { Log("[OXRWXR] xrEndSession"); rt::PushState(s, XR_SESSION_STATE_STOPPING); rt::PushState(s, XR_SESSION_STATE_IDLE); return XR_SUCCESS; }
 static XrResult XRAPI_PTR xrRequestExitSession_runtime(XrSession s) { rt::PushState(s, XR_SESSION_STATE_EXITING); return XR_SUCCESS; }
 static XrResult XRAPI_PTR xrWaitFrame_runtime(XrSession, const XrFrameWaitInfo*, XrFrameState* s) {
     if (!s) return XR_ERROR_VALIDATION_FAILURE;
@@ -2016,7 +2016,7 @@ static XrResult XRAPI_PTR xrWaitFrame_runtime(XrSession, const XrFrameWaitInfo*,
         bool mKeyPressed = (GetAsyncKeyState('M') & 0x8000) != 0;
         if (mKeyPressed && !mKeyWasPressed) {
             autoMotionEnabled = !autoMotionEnabled;
-            Logf("[SimXR] Auto motion %s", autoMotionEnabled ? "ENABLED" : "DISABLED");
+            Logf("[OXRWXR] Auto motion %s", autoMotionEnabled ? "ENABLED" : "DISABLED");
         }
         mKeyWasPressed = mKeyPressed;
 
@@ -2233,7 +2233,7 @@ static void ensurePreviewSized(rt::Session& s, UINT width, UINT height, DXGI_FOR
         WNDCLASSW wc{}; 
         wc.lpfnWndProc = rt::WndProc; 
         wc.hInstance = GetModuleHandleW(nullptr); 
-        wc.lpszClassName = L"OpenXR Simulator";
+        wc.lpszClassName = L"OpenXR WXR";
         wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
         wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
         RegisterClassW(&wc);
@@ -2251,7 +2251,7 @@ static void ensurePreviewSized(rt::Session& s, UINT width, UINT height, DXGI_FOR
                 // CRITICAL: Update WndProc to point to this DLL's function
                 // After DLL reload, the old WndProc pointer is invalid!
                 SetWindowLongPtrW(s.hwnd, GWLP_WNDPROC, (LONG_PTR)rt::WndProc);
-                Log("[SimXR] Updated window WndProc to new DLL address");
+                Log("[OXRWXR] Updated window WndProc to new DLL address");
 
                 // Reuse swapchain if compatible
                 if (rt::g_persistentSwapchain && rt::g_persistentWidth == width && 
@@ -2260,11 +2260,11 @@ static void ensurePreviewSized(rt::Session& s, UINT width, UINT height, DXGI_FOR
                     s.previewWidth = rt::g_persistentWidth;
                     s.previewHeight = rt::g_persistentHeight;
                     s.previewFormat = format;
-                    Log("[SimXR] Reusing existing window AND swapchain from previous session");
+                    Log("[OXRWXR] Reusing existing window AND swapchain from previous session");
                     return;  // Everything is already set up
                 }
                 
-                Log("[SimXR] Reusing existing window from previous session (recreating swapchain)");
+                Log("[OXRWXR] Reusing existing window from previous session (recreating swapchain)");
 
                 // IMPORTANT: Release the old persistent swapchain before creating a new one
                 // DXGI only allows one swapchain per window
@@ -2288,17 +2288,17 @@ static void ensurePreviewSized(rt::Session& s, UINT width, UINT height, DXGI_FOR
         if (!s.hwnd) {
             RECT rc = { 0, 0, (LONG)width, (LONG)height };
             AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
-            s.hwnd = CreateWindowExW(0, L"OpenXR Simulator", L"OpenXR Simulator (Mouse Look + WASD)", WS_OVERLAPPEDWINDOW,
+            s.hwnd = CreateWindowExW(0, L"OpenXR WXR", L"OpenXR WXR (Mouse Look + WASD)", WS_OVERLAPPEDWINDOW,
                                      100, 100, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
             if (!s.hwnd) {
-                Log("[SimXR] Failed to create preview window!");
+                Log("[OXRWXR] Failed to create preview window!");
                 return;
             }
             ShowWindow(s.hwnd, SW_SHOW);
             UpdateWindow(s.hwnd);
             SetForegroundWindow(s.hwnd);
             SetWindowPos(s.hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-            Logf("[SimXR] Created new preview window: hwnd=%p size=%ux%u", s.hwnd, width, height);
+            Logf("[OXRWXR] Created new preview window: hwnd=%p size=%ux%u", s.hwnd, width, height);
             
             // Apply dark theme and menu
             ui::ApplyDarkTheme(s.hwnd);
@@ -2309,7 +2309,7 @@ static void ensurePreviewSized(rt::Session& s, UINT width, UINT height, DXGI_FOR
             {
                 std::lock_guard<std::mutex> lock(rt::g_windowMutex);
                 rt::g_persistentWindow = s.hwnd;
-                Log("[SimXR] Saved new window to persistent storage");
+                Log("[OXRWXR] Saved new window to persistent storage");
             }
         }
     } else {
@@ -2317,7 +2317,7 @@ static void ensurePreviewSized(rt::Session& s, UINT width, UINT height, DXGI_FOR
         RECT rc = { 0, 0, (LONG)width, (LONG)height };
         AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
         SetWindowPos(s.hwnd, nullptr, 0, 0, rc.right - rc.left, rc.bottom - rc.top, SWP_NOMOVE | SWP_NOZORDER | SWP_SHOWWINDOW);
-        Logf("[SimXR] Resized preview window: hwnd=%p size=%ux%u", s.hwnd, width, height);
+        Logf("[OXRWXR] Resized preview window: hwnd=%p size=%ux%u", s.hwnd, width, height);
     }
     if (!s.usesD3D12) {
         ComPtr<IDXGIDevice> dxgiDev; s.d3d11Device.As(&dxgiDev);
@@ -2332,16 +2332,16 @@ static void ensurePreviewSized(rt::Session& s, UINT width, UINT height, DXGI_FOR
         desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD; 
         desc.SampleDesc.Count = 1;
         HRESULT hr = factory->CreateSwapChainForHwnd(s.d3d11Device.Get(), s.hwnd, &desc, nullptr, nullptr, s.previewSwapchain.GetAddressOf());
-        Logf("[SimXR] ensurePreviewSized(DX11): hr=0x%08X swapchain=%p format=%d", (unsigned)hr, s.previewSwapchain.Get(), format);
+        Logf("[OXRWXR] ensurePreviewSized(DX11): hr=0x%08X swapchain=%p format=%d", (unsigned)hr, s.previewSwapchain.Get(), format);
         if (FAILED(hr)) {
-            Logf("[SimXR] ERROR: Failed to create DX11 preview swapchain with format %d", format);
+            Logf("[OXRWXR] ERROR: Failed to create DX11 preview swapchain with format %d", format);
         }
         return;
     } else {
         // DX12 preview swapchain
         ComPtr<IDXGIFactory4> factory;
         if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(factory.GetAddressOf())))) {
-            Log("[SimXR] DX12 preview: CreateDXGIFactory1 failed");
+            Log("[OXRWXR] DX12 preview: CreateDXGIFactory1 failed");
             return;
         }
         DXGI_SWAP_CHAIN_DESC1 desc{};
@@ -2355,7 +2355,7 @@ static void ensurePreviewSized(rt::Session& s, UINT width, UINT height, DXGI_FOR
         ComPtr<IDXGISwapChain1> sc1;
         HRESULT hr = factory->CreateSwapChainForHwnd(s.d3d12Queue.Get(), s.hwnd, &desc, nullptr, nullptr, sc1.GetAddressOf());
         if (FAILED(hr)) {
-            Logf("[SimXR] DX12 preview: CreateSwapChainForHwnd failed 0x%08X", (unsigned)hr);
+            Logf("[OXRWXR] DX12 preview: CreateSwapChainForHwnd failed 0x%08X", (unsigned)hr);
             return;
         }
         sc1.As(&s.previewSwapchain12);
@@ -2366,13 +2366,13 @@ static void ensurePreviewSized(rt::Session& s, UINT width, UINT height, DXGI_FOR
         // Create RTV heap
         D3D12_DESCRIPTOR_HEAP_DESC rtvDesc{}; rtvDesc.NumDescriptors = desc.BufferCount; rtvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV; rtvDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
         if (FAILED(s.d3d12Device->CreateDescriptorHeap(&rtvDesc, IID_PPV_ARGS(s.previewRTVHeap.GetAddressOf())))) {
-            Log("[SimXR] DX12 preview: CreateDescriptorHeap RTV failed"); return;
+            Log("[OXRWXR] DX12 preview: CreateDescriptorHeap RTV failed"); return;
         }
         s.previewRTVDescriptorSize = s.d3d12Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
         D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = s.previewRTVHeap->GetCPUDescriptorHandleForHeapStart();
         for (UINT i = 0; i < desc.BufferCount; ++i) {
             if (FAILED(s.previewSwapchain12->GetBuffer(i, IID_PPV_ARGS(s.previewBackbuffers[i].GetAddressOf())))) {
-                Logf("[SimXR] DX12 preview: GetBuffer %u failed", i); return;
+                Logf("[OXRWXR] DX12 preview: GetBuffer %u failed", i); return;
             }
             s.d3d12Device->CreateRenderTargetView(s.previewBackbuffers[i].Get(), nullptr, rtvHandle);
             rtvHandle.ptr += s.previewRTVDescriptorSize;
@@ -2385,7 +2385,7 @@ static void ensurePreviewSized(rt::Session& s, UINT width, UINT height, DXGI_FOR
         s.d3d12Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(s.previewFence.GetAddressOf()));
         s.previewFenceValue = 1;
         s.previewFenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-        Log("[SimXR] DX12 preview swapchain initialized");
+        Log("[OXRWXR] DX12 preview swapchain initialized");
         return;
     }
 }
@@ -2394,22 +2394,22 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
                            const XrRect2Di& rect, ID3D11RenderTargetView* rtv,
                            const D3D11_VIEWPORT& vp, ID3D11BlendState* blendState) {
     if (!rtv) {
-        Log("[SimXR] blitViewToHalf: rtv is null!");
+        Log("[OXRWXR] blitViewToHalf: rtv is null!");
         return;
     }
 
     if (!rt::InitBlitResources(s)) {
-        Log("[SimXR] Cannot blit, blit resources failed to initialize.");
+        Log("[OXRWXR] Cannot blit, blit resources failed to initialize.");
         return;
     }
 
     // Check if we have a valid image
     if (srcIndex >= chain.images.size()) {
-        Logf("[SimXR] blitViewToHalf: srcIndex %u >= images.size() %zu", srcIndex, chain.images.size());
+        Logf("[OXRWXR] blitViewToHalf: srcIndex %u >= images.size() %zu", srcIndex, chain.images.size());
         return;
     }
     if (!chain.images[srcIndex]) {
-        Logf("[SimXR] blitViewToHalf: images[%u] is null", srcIndex);
+        Logf("[OXRWXR] blitViewToHalf: images[%u] is null", srcIndex);
         return;
     }
 
@@ -2431,7 +2431,7 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
         // Depth swapchains are for depth testing, not preview rendering
         static int depthSkipCount = 0;
         if (++depthSkipCount % 60 == 1) {
-            Logf("[SimXR] blitViewToHalf: Skipping depth format %d", srcDesc.Format);
+            Logf("[OXRWXR] blitViewToHalf: Skipping depth format %d", srcDesc.Format);
         }
         return;
     }
@@ -2481,7 +2481,7 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
 
     HRESULT hr = s.d3d11Device->CreateTexture2D(&tempDesc, nullptr, viewTexture.GetAddressOf());
     if (FAILED(hr)) {
-        Logf("[SimXR] Failed to create temp texture for blit: 0x%08X", hr);
+        Logf("[OXRWXR] Failed to create temp texture for blit: 0x%08X", hr);
         return;
     }
 
@@ -2510,7 +2510,7 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
     if (!rectValid && (rect.extent.width != 0 || rect.extent.height != 0)) {
         static int invalidRectCount = 0;
         if (++invalidRectCount % 60 == 1) {
-            Logf("[SimXR] Invalid imageRect; using full texture (offset=%d,%d extent=%d,%d size=%dx%d)",
+            Logf("[OXRWXR] Invalid imageRect; using full texture (offset=%d,%d extent=%d,%d size=%dx%d)",
                  rect.offset.x, rect.offset.y, rect.extent.width, rect.extent.height, srcW, srcH);
         }
     }
@@ -2527,7 +2527,7 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
         viewTexture.Reset();
         HRESULT hr = s.d3d11Device->CreateTexture2D(&tempDesc, nullptr, viewTexture.GetAddressOf());
         if (FAILED(hr)) {
-            Logf("[SimXR] Failed to create cropped temp texture: 0x%08X", hr);
+            Logf("[OXRWXR] Failed to create cropped temp texture: 0x%08X", hr);
             return;
         }
         
@@ -2543,10 +2543,10 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
         s.d3d11Context->CopySubresourceRegion(viewTexture.Get(), 0, 0, 0, 0, sourceTexture.Get(), srcSubresource, &box);
         
         if (rectClamped) {
-            Logf("[SimXR] Applied clamped imageRect: %dx%d from (%d,%d)",
+            Logf("[OXRWXR] Applied clamped imageRect: %dx%d from (%d,%d)",
                  rectW, rectH, rectX, rectY);
         } else {
-            Logf("[SimXR] Applied imageRect cropping: %dx%d from (%d,%d)",
+            Logf("[OXRWXR] Applied imageRect cropping: %dx%d from (%d,%d)",
                  rectW, rectH, rectX, rectY);
         }
     } else {
@@ -2570,7 +2570,7 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
     ComPtr<ID3D11ShaderResourceView> srv;
     hr = s.d3d11Device->CreateShaderResourceView(viewTexture.Get(), &srvDesc, srv.GetAddressOf());
     if (FAILED(hr)) {
-        Logf("[SimXR] Failed to create SRV: 0x%08X", hr);
+        Logf("[OXRWXR] Failed to create SRV: 0x%08X", hr);
         return;
     }
 
@@ -2605,10 +2605,10 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
     
     static int debugCount = 0;
     if (++debugCount % 120 == 1) {
-        Logf("[SimXR] blitViewToHalf: srcIdx=%u slice=%u typedFmt=%d srcFmt=%d",
+        Logf("[OXRWXR] blitViewToHalf: srcIdx=%u slice=%u typedFmt=%d srcFmt=%d",
              srcIndex, arraySlice, typedFormat, srcDesc.Format);
-        Logf("[SimXR]   viewport: x=%.0f y=%.0f w=%.0f h=%.0f", vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height);
-        Logf("[SimXR]   srcSize: %ux%u, tempSize: %ux%u", srcDesc.Width, srcDesc.Height, tempDesc.Width, tempDesc.Height);
+        Logf("[OXRWXR]   viewport: x=%.0f y=%.0f w=%.0f h=%.0f", vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height);
+        Logf("[OXRWXR]   srcSize: %ux%u, tempSize: %ux%u", srcDesc.Width, srcDesc.Height, tempDesc.Width, tempDesc.Height);
     }
 }
 
@@ -2618,7 +2618,7 @@ static void blitD3D12ToPreview(rt::Session& s,
                                 rt::Swapchain* chainR, uint32_t rightIdx, uint32_t rightSlice,
                                 ui::DisplayLayout layout, ui::ViewMode viewMode) {
     if (!s.previewSwapchain12 || !s.previewCmdList || !s.previewCmdAlloc) {
-        Log("[SimXR] blitD3D12ToPreview: Missing D3D12 preview resources");
+        Log("[OXRWXR] blitD3D12ToPreview: Missing D3D12 preview resources");
         return;
     }
 
@@ -2640,19 +2640,19 @@ static void blitD3D12ToPreview(rt::Session& s,
     UINT bbIndex = s.previewSwapchain12->GetCurrentBackBufferIndex();
     ID3D12Resource* backbuffer = s.previewBackbuffers[bbIndex].Get();
     if (!backbuffer) {
-        Log("[SimXR] blitD3D12ToPreview: No backbuffer");
+        Log("[OXRWXR] blitD3D12ToPreview: No backbuffer");
         return;
     }
 
     // Reset command allocator and list
     HRESULT hr = s.previewCmdAlloc->Reset();
     if (FAILED(hr)) {
-        Logf("[SimXR] blitD3D12ToPreview: CmdAlloc Reset failed 0x%08X", hr);
+        Logf("[OXRWXR] blitD3D12ToPreview: CmdAlloc Reset failed 0x%08X", hr);
         return;
     }
     hr = s.previewCmdList->Reset(s.previewCmdAlloc.Get(), nullptr);
     if (FAILED(hr)) {
-        Logf("[SimXR] blitD3D12ToPreview: CmdList Reset failed 0x%08X", hr);
+        Logf("[OXRWXR] blitD3D12ToPreview: CmdList Reset failed 0x%08X", hr);
         return;
     }
 
@@ -2681,7 +2681,7 @@ static void blitD3D12ToPreview(rt::Session& s,
         uint32_t arraySize = chain.arraySize ? chain.arraySize : 1;
         uint32_t mipLevels = chain.mipCount ? chain.mipCount : 1;
         if (slice >= arraySize) {
-            Logf("[SimXR] blitD3D12ToPreview: %s slice %u out of range (arraySize=%u)", label, slice, arraySize);
+            Logf("[OXRWXR] blitD3D12ToPreview: %s slice %u out of range (arraySize=%u)", label, slice, arraySize);
             return UINT_MAX;
         }
         return D3D12CalcSubresource(0, slice, 0, mipLevels, arraySize);
@@ -2691,7 +2691,7 @@ static void blitD3D12ToPreview(rt::Session& s,
                        UINT dstX, UINT dstY, const char* label) -> bool {
         if (idx >= chain.images12.size() || !chain.images12[idx]) return false;
         if (chain.imageStates12.size() <= idx) {
-            Logf("[SimXR] blitD3D12ToPreview: %s missing state tracking", label);
+            Logf("[OXRWXR] blitD3D12ToPreview: %s missing state tracking", label);
             return false;
         }
         UINT subresource = calcSubresource(chain, slice, label);
@@ -2730,7 +2730,7 @@ static void blitD3D12ToPreview(rt::Session& s,
     ui::DisplayLayout effectiveLayout = layout;
     if (!singleEye && layout == ui::DisplayLayout::Anaglyph) {
         if (!loggedAnaglyph) {
-            Log("[SimXR] blitD3D12ToPreview: Anaglyph not supported on D3D12 path; showing left eye only");
+            Log("[OXRWXR] blitD3D12ToPreview: Anaglyph not supported on D3D12 path; showing left eye only");
             loggedAnaglyph = true;
         }
         forceSingleEye = true;
@@ -2780,7 +2780,7 @@ static void blitD3D12ToPreview(rt::Session& s,
 
     static int blitCount = 0;
     if (++blitCount % 60 == 1) {
-        Logf("[SimXR] blitD3D12ToPreview: Copied L[%u] R[%u] to backbuffer %u", leftIdx, rightIdx, bbIndex);
+        Logf("[OXRWXR] blitD3D12ToPreview: Copied L[%u] R[%u] to backbuffer %u", leftIdx, rightIdx, bbIndex);
     }
 }
 
@@ -2788,18 +2788,18 @@ static void blitD3D12ToPreview(rt::Session& s,
 static bool g_presentPending = false;
 
 static void presentProjection(rt::Session& s, const XrCompositionLayerProjection& proj, bool skipPresent = false) {
-    Log("[SimXR] ============================================");
-    Logf("[SimXR] presentProjection called: viewCount=%u, skipPresent=%d", proj.viewCount, (int)skipPresent);
-    Log("[SimXR] RENDERING FRAME TO PREVIEW WINDOW");
-    Log("[SimXR] ============================================");
+    Log("[OXRWXR] ============================================");
+    Logf("[OXRWXR] presentProjection called: viewCount=%u, skipPresent=%d", proj.viewCount, (int)skipPresent);
+    Log("[OXRWXR] RENDERING FRAME TO PREVIEW WINDOW");
+    Log("[OXRWXR] ============================================");
     if (proj.viewCount < 1) {
-        Log("[SimXR] presentProjection: No views, returning");
+        Log("[OXRWXR] presentProjection: No views, returning");
         return;
     }
     const auto& vL = proj.views[0];
     auto itL = rt::g_swapchains.find(vL.subImage.swapchain); 
     if (itL == rt::g_swapchains.end()) {
-        Log("[SimXR] presentProjection: Left swapchain not found");
+        Log("[OXRWXR] presentProjection: Left swapchain not found");
         return;
     }
     auto& chL = itL->second;
@@ -2823,7 +2823,7 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
             glFrameCount++;
 
             if (glFrameCount % 60 == 1) {
-                Logf("[SimXR] GL PREVIEW: frame=%d, width=%u, height=%u", glFrameCount, width, height);
+                Logf("[OXRWXR] GL PREVIEW: frame=%d, width=%u, height=%u", glFrameCount, width, height);
             }
 
             // Make the app's GL context current
@@ -2831,18 +2831,18 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
             HDC savedDC = wglGetCurrentDC();
 
             if (glFrameCount % 60 == 1) {
-                Logf("[SimXR] GL PREVIEW: savedRC=%p, savedDC=%p, s.glRC=%p, s.glDC=%p",
+                Logf("[OXRWXR] GL PREVIEW: savedRC=%p, savedDC=%p, s.glRC=%p, s.glDC=%p",
                      savedRC, savedDC, s.glRC, s.glDC);
             }
 
             if (s.glRC && s.glDC) {
                 BOOL result = wglMakeCurrent(s.glDC, s.glRC);
                 if (glFrameCount % 60 == 1) {
-                    Logf("[SimXR] GL PREVIEW: wglMakeCurrent result=%d", result);
+                    Logf("[OXRWXR] GL PREVIEW: wglMakeCurrent result=%d", result);
                 }
             } else {
                 if (glFrameCount % 60 == 1) {
-                    Log("[SimXR] GL PREVIEW: WARNING - s.glRC or s.glDC is null!");
+                    Log("[OXRWXR] GL PREVIEW: WARNING - s.glRC or s.glDC is null!");
                 }
             }
 
@@ -2932,7 +2932,7 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
 
             // Log progress and check if pixel data is valid
             if (glFrameCount % 60 == 1) {
-                Logf("[SimXR] OpenGL frame #%d - leftTex=%u, rightTex=%u, size=%ux%u",
+                Logf("[OXRWXR] OpenGL frame #%d - leftTex=%u, rightTex=%u, size=%ux%u",
                      glFrameCount, leftTex, rightTex, width, height);
 
                 // Check if pixels are all zero (black) or have content
@@ -2943,11 +2943,11 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
                 for (size_t i = 0; i < std::min((size_t)1000, rightPixels.size()); i++) {
                     rightSum += rightPixels[i];
                 }
-                Logf("[SimXR] GL PREVIEW: leftPixelSum=%u, rightPixelSum=%u (first 1000 bytes)", leftSum, rightSum);
+                Logf("[OXRWXR] GL PREVIEW: leftPixelSum=%u, rightPixelSum=%u (first 1000 bytes)", leftSum, rightSum);
 
                 // Print first few pixel values (RGBA)
                 if (leftPixels.size() >= 16) {
-                    Logf("[SimXR] GL PREVIEW: First 4 pixels (RGBA): [%d,%d,%d,%d] [%d,%d,%d,%d] [%d,%d,%d,%d] [%d,%d,%d,%d]",
+                    Logf("[OXRWXR] GL PREVIEW: First 4 pixels (RGBA): [%d,%d,%d,%d] [%d,%d,%d,%d] [%d,%d,%d,%d] [%d,%d,%d,%d]",
                          leftPixels[0], leftPixels[1], leftPixels[2], leftPixels[3],
                          leftPixels[4], leftPixels[5], leftPixels[6], leftPixels[7],
                          leftPixels[8], leftPixels[9], leftPixels[10], leftPixels[11],
@@ -2957,7 +2957,7 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
                 // Check a pixel in the middle of the image
                 size_t midOffset = (height / 2) * width * 4 + (width / 2) * 4;
                 if (midOffset + 4 <= leftPixels.size()) {
-                    Logf("[SimXR] GL PREVIEW: Middle pixel (RGBA): [%d,%d,%d,%d]",
+                    Logf("[OXRWXR] GL PREVIEW: Middle pixel (RGBA): [%d,%d,%d,%d]",
                          leftPixels[midOffset], leftPixels[midOffset+1], leftPixels[midOffset+2], leftPixels[midOffset+3]);
                 }
             }
@@ -2974,10 +2974,10 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
                                                nullptr, 0, D3D11_SDK_VERSION,
                                                &s.d3d11Device, &featureLevel, &s.d3d11Context);
                 if (FAILED(hr)) {
-                    Logf("[SimXR] Failed to create D3D11 device for GL preview: 0x%08X", hr);
+                    Logf("[OXRWXR] Failed to create D3D11 device for GL preview: 0x%08X", hr);
                     return;
                 }
-                Log("[SimXR] Created D3D11 device for OpenGL preview");
+                Log("[OXRWXR] Created D3D11 device for OpenGL preview");
 
                 // Force shader recompilation by resetting blit resources
                 s.blitVS.Reset();
@@ -2986,7 +2986,7 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
                 s.noCullRS.Reset();
                 s.anaglyphRedBS.Reset();
                 s.anaglyphCyanBS.Reset();
-                Log("[SimXR] Reset blit resources for fresh shader compilation");
+                Log("[OXRWXR] Reset blit resources for fresh shader compilation");
             }
 
             // Use the standard preview path now that we have a D3D11 device
@@ -2998,20 +2998,20 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
             ui::CalculateWindowSize((int)width, (int)height, targetWidth, targetHeight);
 
             if (glFrameCount % 60 == 1) {
-                Logf("[SimXR] GL PREVIEW: targetSize=%dx%d, calling ensurePreviewSized", targetWidth, targetHeight);
+                Logf("[OXRWXR] GL PREVIEW: targetSize=%dx%d, calling ensurePreviewSized", targetWidth, targetHeight);
             }
 
             ensurePreviewSized(s, (UINT)targetWidth, (UINT)targetHeight, displayFormat);
 
             if (!s.previewSwapchain) {
-                Log("[SimXR] GL PREVIEW: ERROR - previewSwapchain is NULL after ensurePreviewSized!");
+                Log("[OXRWXR] GL PREVIEW: ERROR - previewSwapchain is NULL after ensurePreviewSized!");
                 return;
             }
 
             // Get the backbuffer
             ComPtr<ID3D11Texture2D> bb;
             if (FAILED(s.previewSwapchain->GetBuffer(0, IID_PPV_ARGS(bb.GetAddressOf())))) {
-                Log("[SimXR] Failed to get preview swapchain buffer for GL preview");
+                Log("[OXRWXR] Failed to get preview swapchain buffer for GL preview");
                 return;
             }
 
@@ -3044,14 +3044,14 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
 
             // Initialize blit resources if not already done
             if (!rt::InitBlitResources(s)) {
-                Log("[SimXR] OpenGL preview: Failed to init blit resources");
+                Log("[OXRWXR] OpenGL preview: Failed to init blit resources");
                 return;
             }
 
             // Create render target view for the backbuffer
             ComPtr<ID3D11RenderTargetView> rtv;
             if (FAILED(s.d3d11Device->CreateRenderTargetView(bb.Get(), nullptr, rtv.GetAddressOf()))) {
-                Log("[SimXR] OpenGL preview: Failed to create RTV");
+                Log("[OXRWXR] OpenGL preview: Failed to create RTV");
                 return;
             }
 
@@ -3060,18 +3060,18 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
             if (leftTex2D) {
                 HRESULT hr = s.d3d11Device->CreateShaderResourceView(leftTex2D.Get(), nullptr, leftSRV.GetAddressOf());
                 if (FAILED(hr) && glFrameCount % 60 == 1) {
-                    Logf("[SimXR] GL PREVIEW: CreateSRV for left failed: 0x%08X", hr);
+                    Logf("[OXRWXR] GL PREVIEW: CreateSRV for left failed: 0x%08X", hr);
                 }
             }
             if (rightTex2D) {
                 HRESULT hr = s.d3d11Device->CreateShaderResourceView(rightTex2D.Get(), nullptr, rightSRV.GetAddressOf());
                 if (FAILED(hr) && glFrameCount % 60 == 1) {
-                    Logf("[SimXR] GL PREVIEW: CreateSRV for right failed: 0x%08X", hr);
+                    Logf("[OXRWXR] GL PREVIEW: CreateSRV for right failed: 0x%08X", hr);
                 }
             }
 
             if (glFrameCount % 60 == 1) {
-                Logf("[SimXR] GL PREVIEW: leftTex2D=%p rightTex2D=%p leftSRV=%p rightSRV=%p",
+                Logf("[OXRWXR] GL PREVIEW: leftTex2D=%p rightTex2D=%p leftSRV=%p rightSRV=%p",
                      leftTex2D.Get(), rightTex2D.Get(), leftSRV.Get(), rightSRV.Get());
             }
 
@@ -3107,12 +3107,12 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
             // Helper lambda to blit a texture to a viewport
             auto blitTexture = [&](ID3D11ShaderResourceView* srv, const D3D11_VIEWPORT& vp) {
                 if (!srv) {
-                    if (glFrameCount % 60 == 1) Log("[SimXR] GL PREVIEW: blitTexture - SRV is null!");
+                    if (glFrameCount % 60 == 1) Log("[OXRWXR] GL PREVIEW: blitTexture - SRV is null!");
                     return;
                 }
 
                 if (glFrameCount % 60 == 1) {
-                    Logf("[SimXR] GL PREVIEW: blitTexture - vp=(%.0f,%.0f,%.0f,%.0f) srv=%p",
+                    Logf("[OXRWXR] GL PREVIEW: blitTexture - vp=(%.0f,%.0f,%.0f,%.0f) srv=%p",
                          vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height, srv);
                 }
 
@@ -3182,12 +3182,12 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
                 while (PeekMessageW(&msg, s.hwnd, 0, 0, PM_REMOVE)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
 
                 if (glFrameCount % 60 == 1) {
-                    Logf("[SimXR] GL PREVIEW: About to Present - hwnd=%p, swapchain=%p", s.hwnd, s.previewSwapchain.Get());
+                    Logf("[OXRWXR] GL PREVIEW: About to Present - hwnd=%p, swapchain=%p", s.hwnd, s.previewSwapchain.Get());
                 }
 
                 HRESULT presentHr = s.previewSwapchain->Present(1, 0);
                 if (FAILED(presentHr) && glFrameCount % 60 == 1) {
-                    Logf("[SimXR] GL PREVIEW: Present FAILED with hr=0x%08X", presentHr);
+                    Logf("[OXRWXR] GL PREVIEW: Present FAILED with hr=0x%08X", presentHr);
                 }
             } else {
                 g_presentPending = true;
@@ -3219,7 +3219,7 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
 
         static int blitCount = 0;
         if (++blitCount % 60 == 1) {  // Log every 60 frames
-            Logf("[SimXR] Blitting left eye: idx=%u (lastReleased=%u, lastAcquired=%u, imageCount=%u)",
+            Logf("[OXRWXR] Blitting left eye: idx=%u (lastReleased=%u, lastAcquired=%u, imageCount=%u)",
                  leftIdx, chL.lastReleased, chL.lastAcquired, chL.imageCount);
         }
 
@@ -3233,7 +3233,7 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
             // Get the backbuffer and create RTV
             ComPtr<ID3D11Texture2D> bb;
             if (FAILED(s.previewSwapchain->GetBuffer(0, IID_PPV_ARGS(bb.GetAddressOf())))) {
-                Log("[SimXR] Failed to get preview swapchain buffer.");
+                Log("[OXRWXR] Failed to get preview swapchain buffer.");
                 return;
             }
 
@@ -3251,9 +3251,9 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
             ComPtr<ID3D11RenderTargetView> rtv;
             HRESULT hr = s.d3d11Device->CreateRenderTargetView(bb.Get(), &rtvDesc, rtv.GetAddressOf());
             if (FAILED(hr)) {
-                Logf("[SimXR] Explicit sRGB RTV failed (0x%08X), falling back to auto format", hr);
+                Logf("[OXRWXR] Explicit sRGB RTV failed (0x%08X), falling back to auto format", hr);
                 if (FAILED(s.d3d11Device->CreateRenderTargetView(bb.Get(), nullptr, rtv.GetAddressOf()))) {
-                    Log("[SimXR] Failed to create RTV for preview.");
+                    Log("[OXRWXR] Failed to create RTV for preview.");
                     return;
                 }
             }
@@ -3388,7 +3388,7 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
     if (s.usesD3D12) {
         static bool warnedD3D12 = false;
         if (!warnedD3D12) {
-            Log("[SimXR] WARNING: Quad layer rendering not implemented for D3D12 sessions");
+            Log("[OXRWXR] WARNING: Quad layer rendering not implemented for D3D12 sessions");
             warnedD3D12 = true;
         }
         return;
@@ -3413,7 +3413,7 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
     bool shouldLog = (++quadLogCount % 60 == 1);
 
     if (shouldLog) {
-        Logf("[SimXR] Quad swapchain: handle=%llu, lastReleased=%u, lastAcquired=%u, texIdx=%u, imageCount=%u",
+        Logf("[OXRWXR] Quad swapchain: handle=%llu, lastReleased=%u, lastAcquired=%u, texIdx=%u, imageCount=%u",
              (unsigned long long)quad->subImage.swapchain, chain.lastReleased, chain.lastAcquired,
              texIdx, chain.imageCount);
     }
@@ -3432,7 +3432,7 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
 
         // DEBUG: Log current context BEFORE switch
         if (shouldLog) {
-            Logf("[SimXR] Quad GL context: current={RC=%p,DC=%p}, stored={RC=%p,DC=%p}",
+            Logf("[OXRWXR] Quad GL context: current={RC=%p,DC=%p}, stored={RC=%p,DC=%p}",
                  savedRC, savedDC, s.glRC, s.glDC);
         }
 
@@ -3440,7 +3440,7 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
             BOOL switchResult = wglMakeCurrent(s.glDC, s.glRC);
             if (shouldLog) {
                 HGLRC afterRC = wglGetCurrentContext();
-                Logf("[SimXR] Quad GL context switch: result=%d, afterRC=%p (expected %p)",
+                Logf("[OXRWXR] Quad GL context switch: result=%d, afterRC=%p (expected %p)",
                      switchResult, afterRC, s.glRC);
             }
         }
@@ -3451,7 +3451,7 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
         // DEBUG: Verify texture exists and is valid
         if (shouldLog) {
             GLboolean isValid = glIsTexture(glTex);
-            Logf("[SimXR] Quad texture check: glTex=%u, glIsTexture=%d", glTex, isValid);
+            Logf("[OXRWXR] Quad texture check: glTex=%u, glIsTexture=%d", glTex, isValid);
         }
 
         // Read pixels from GL texture using FBO (more reliable than glGetTexImage)
@@ -3472,7 +3472,7 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
                 usedFBO = true;
             } else {
                 if (shouldLog) {
-                    Logf("[SimXR] Quad FBO not complete: status=0x%X, falling back to glGetTexImage", fboStatus);
+                    Logf("[OXRWXR] Quad FBO not complete: status=0x%X, falling back to glGetTexImage", fboStatus);
                 }
             }
 
@@ -3491,7 +3491,7 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
         if (shouldLog) {
             uint32_t pixelSum = 0;
             for (size_t i = 0; i < std::min((size_t)4000, pixels.size()); i++) pixelSum += pixels[i];
-            Logf("[SimXR] Quad GL pixels: sum=%u, first 4=[%d,%d,%d,%d][%d,%d,%d,%d][%d,%d,%d,%d][%d,%d,%d,%d]",
+            Logf("[OXRWXR] Quad GL pixels: sum=%u, first 4=[%d,%d,%d,%d][%d,%d,%d,%d][%d,%d,%d,%d][%d,%d,%d,%d]",
                  pixelSum, pixels[0], pixels[1], pixels[2], pixels[3],
                  pixels[4], pixels[5], pixels[6], pixels[7],
                  pixels[8], pixels[9], pixels[10], pixels[11],
@@ -3499,7 +3499,7 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
             // Check middle of image
             size_t midIdx = (texHeight/2 * texWidth + texWidth/2) * 4;
             if (midIdx + 3 < pixels.size()) {
-                Logf("[SimXR] Quad GL middle pixel: [%d,%d,%d,%d]",
+                Logf("[OXRWXR] Quad GL middle pixel: [%d,%d,%d,%d]",
                      pixels[midIdx], pixels[midIdx+1], pixels[midIdx+2], pixels[midIdx+3]);
             }
         }
@@ -3537,12 +3537,12 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
         initData.SysMemPitch = texWidth * 4;
 
         if (FAILED(s.d3d11Device->CreateTexture2D(&texDesc, &initData, quadTex.GetAddressOf()))) {
-            if (shouldLog) Log("[SimXR] renderQuadLayer: Failed to create D3D11 texture from GL pixels");
+            if (shouldLog) Log("[OXRWXR] renderQuadLayer: Failed to create D3D11 texture from GL pixels");
             return;
         }
 
         if (shouldLog) {
-            Logf("[SimXR] Rendering quad layer (OpenGL): size=%.2fx%.2f, texSize=%ux%u, glTex=%u",
+            Logf("[OXRWXR] Rendering quad layer (OpenGL): size=%.2fx%.2f, texSize=%ux%u, glTex=%u",
                  quad->size.width, quad->size.height, texWidth, texHeight, glTex);
         }
     } else if (!chain.images.empty()) {
@@ -3597,11 +3597,11 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
         s.d3d11Context->CopySubresourceRegion(quadTex.Get(), 0, 0, 0, 0, chain.images[texIdx].Get(), srcSubresource, &box);
 
         if (shouldLog) {
-            Logf("[SimXR] Rendering quad layer (D3D11): size=%.2fx%.2f, texSize=%ux%u, typedFmt=%d, srcFmt=%d, arraySlice=%u",
+            Logf("[OXRWXR] Rendering quad layer (D3D11): size=%.2fx%.2f, texSize=%ux%u, typedFmt=%d, srcFmt=%d, arraySlice=%u",
                  quad->size.width, quad->size.height, srcDesc.Width, srcDesc.Height, typedFormat, srcDesc.Format, arraySlice);
         }
     } else {
-        if (shouldLog) Log("[SimXR] renderQuadLayer: No valid images in swapchain");
+        if (shouldLog) Log("[OXRWXR] renderQuadLayer: No valid images in swapchain");
         return;
     }
 
@@ -3673,16 +3673,16 @@ static XrResult XRAPI_PTR xrEndFrame_runtime(XrSession, const XrFrameEndInfo* in
     bool shouldLog = (frameCount <= 10) || (frameCount % 60 == 1);
 
     if (shouldLog) {
-        Logf("[SimXR] xrEndFrame called (frame #%d)", frameCount);
+        Logf("[OXRWXR] xrEndFrame called (frame #%d)", frameCount);
     }
 
     if (!info) {
-        Log("[SimXR] xrEndFrame: ERROR - info is null");
+        Log("[OXRWXR] xrEndFrame: ERROR - info is null");
         return XR_ERROR_VALIDATION_FAILURE;
     }
 
     if (shouldLog) {
-        Logf("[SimXR] xrEndFrame: layers=%u", info->layerCount);
+        Logf("[OXRWXR] xrEndFrame: layers=%u", info->layerCount);
     }
 
     // First pass: count layer types to know if we need to defer Present
@@ -3749,12 +3749,12 @@ static XrResult XRAPI_PTR xrEndFrame_runtime(XrSession, const XrFrameEndInfo* in
     }
 
     if (shouldLog && (quadCount > 0 || cylinderCount > 0)) {
-        Logf("[SimXR] xrEndFrame: proj=%d quad=%d cyl=%d other=%d",
+        Logf("[OXRWXR] xrEndFrame: proj=%d quad=%d cyl=%d other=%d",
              projectionCount, quadCount, cylinderCount, otherCount);
     }
 
     if (projectionCount == 0 && shouldLog) {
-        Log("[SimXR] xrEndFrame: WARNING - No projection layers found!");
+        Log("[OXRWXR] xrEndFrame: WARNING - No projection layers found!");
     }
 
     // MCP Integration - write frame status for diagnostics
@@ -3834,7 +3834,7 @@ static XrResult XRAPI_PTR xrLocateViews_runtime(XrSession, const XrViewLocateInf
     }
     static int locateCount = 0;
     if (++locateCount % 90 == 1) {  // Log every 90 frames (~1 second)
-        Logf("[SimXR] xrLocateViews: pos=(%.2f,%.2f,%.2f) yaw=%.2f pitch=%.2f", 
+        Logf("[OXRWXR] xrLocateViews: pos=(%.2f,%.2f,%.2f) yaw=%.2f pitch=%.2f", 
              rt::g_headPos.x, rt::g_headPos.y, rt::g_headPos.z, 
              rt::g_headYaw, rt::g_headPitch);
     }
@@ -3846,12 +3846,12 @@ static XrResult XRAPI_PTR xrCreateReferenceSpace_runtime(XrSession, const XrRefe
     if (!info || !space) return XR_ERROR_VALIDATION_FAILURE;
     static uintptr_t nextSpace = 100;
     *space = (XrSpace)(nextSpace++);
-    Logf("[SimXR] xrCreateReferenceSpace: type=%d space=%p", info->referenceSpaceType, *space);
+    Logf("[OXRWXR] xrCreateReferenceSpace: type=%d space=%p", info->referenceSpaceType, *space);
     return XR_SUCCESS;
 }
 
 static XrResult XRAPI_PTR xrDestroySpace_runtime(XrSpace space) {
-    Logf("[SimXR] xrDestroySpace: space=%p", space);
+    Logf("[OXRWXR] xrDestroySpace: space=%p", space);
     return XR_SUCCESS;
 }
 
@@ -3886,7 +3886,7 @@ static XrResult XRAPI_PTR xrLocateSpace_runtime(XrSpace space, XrSpace baseSpace
                 float speed = sqrtf(ctrl.linearVelocity.x * ctrl.linearVelocity.x +
                                    ctrl.linearVelocity.y * ctrl.linearVelocity.y +
                                    ctrl.linearVelocity.z * ctrl.linearVelocity.z);
-                Logf("[SimXR] xrLocateSpace: controller %d at (%.2f, %.2f, %.2f) vel=(%.2f, %.2f, %.2f) speed=%.2f m/s",
+                Logf("[OXRWXR] xrLocateSpace: controller %d at (%.2f, %.2f, %.2f) vel=(%.2f, %.2f, %.2f) speed=%.2f m/s",
                      ctrlType, location->pose.position.x, location->pose.position.y, location->pose.position.z,
                      ctrl.linearVelocity.x, ctrl.linearVelocity.y, ctrl.linearVelocity.z, speed);
             }
@@ -3921,33 +3921,33 @@ static XrResult XRAPI_PTR xrCreateActionSpace_runtime(XrSession, const XrActionS
 
     // Detect controller subaction paths and register the space
     int controllerType = 0;  // 0=none, 1=left, 2=right
-    Logf("[SimXR] xrCreateActionSpace: subactionPath=%llu, g_pathStrings.size()=%zu",
+    Logf("[OXRWXR] xrCreateActionSpace: subactionPath=%llu, g_pathStrings.size()=%zu",
          (unsigned long long)info->subactionPath, rt::g_pathStrings.size());
 
     if (info->subactionPath != XR_NULL_PATH) {
         auto it = rt::g_pathStrings.find(info->subactionPath);
         if (it != rt::g_pathStrings.end()) {
             const std::string& pathStr = it->second;
-            Logf("[SimXR] xrCreateActionSpace: found path='%s'", pathStr.c_str());
+            Logf("[OXRWXR] xrCreateActionSpace: found path='%s'", pathStr.c_str());
             if (pathStr.find("/user/hand/left") != std::string::npos) {
                 controllerType = 1;  // Left controller
-                Logf("[SimXR] xrCreateActionSpace: LEFT controller space %llu", (unsigned long long)*space);
+                Logf("[OXRWXR] xrCreateActionSpace: LEFT controller space %llu", (unsigned long long)*space);
             } else if (pathStr.find("/user/hand/right") != std::string::npos) {
                 controllerType = 2;  // Right controller
-                Logf("[SimXR] xrCreateActionSpace: RIGHT controller space %llu", (unsigned long long)*space);
+                Logf("[OXRWXR] xrCreateActionSpace: RIGHT controller space %llu", (unsigned long long)*space);
             }
         } else {
-            Logf("[SimXR] xrCreateActionSpace: path %llu NOT FOUND in g_pathStrings", (unsigned long long)info->subactionPath);
+            Logf("[OXRWXR] xrCreateActionSpace: path %llu NOT FOUND in g_pathStrings", (unsigned long long)info->subactionPath);
         }
     } else {
-        Log("[SimXR] xrCreateActionSpace: subactionPath is XR_NULL_PATH");
+        Log("[OXRWXR] xrCreateActionSpace: subactionPath is XR_NULL_PATH");
     }
 
     if (controllerType > 0) {
         rt::g_controllerSpaces[*space] = controllerType;
     }
 
-    Log("[SimXR] xrCreateActionSpace");
+    Log("[OXRWXR] xrCreateActionSpace");
     return XR_SUCCESS;
 }
 
@@ -3958,12 +3958,12 @@ static XrResult XRAPI_PTR xrCreateActionSet_runtime(XrInstance, const XrActionSe
     // actionSetName may not be null-terminated
     char setName[XR_MAX_ACTION_SET_NAME_SIZE + 1] = {0};
     memcpy(setName, info->actionSetName, XR_MAX_ACTION_SET_NAME_SIZE);
-    Logf("[SimXR] xrCreateActionSet: name=%s", setName);
+    Logf("[OXRWXR] xrCreateActionSet: name=%s", setName);
     return XR_SUCCESS;
 }
 
 static XrResult XRAPI_PTR xrDestroyActionSet_runtime(XrActionSet set) {
-    Log("[SimXR] xrDestroyActionSet");
+    Log("[OXRWXR] xrDestroyActionSet");
     return XR_SUCCESS;
 }
 
@@ -3974,7 +3974,7 @@ static XrResult XRAPI_PTR xrCreateAction_runtime(XrActionSet, const XrActionCrea
     // actionName may not be null-terminated
     char actName[XR_MAX_ACTION_NAME_SIZE + 1] = {0};
     memcpy(actName, info->actionName, XR_MAX_ACTION_NAME_SIZE);
-    Logf("[SimXR] xrCreateAction: name=%s, type=%d", actName, info->actionType);
+    Logf("[OXRWXR] xrCreateAction: name=%s, type=%d", actName, info->actionType);
 
     // Store action name for input mapping
     rt::g_actionNames[*action] = actName;
@@ -3996,21 +3996,21 @@ static XrResult XRAPI_PTR xrCreateAction_runtime(XrActionSet, const XrActionCrea
 }
 
 static XrResult XRAPI_PTR xrDestroyAction_runtime(XrAction action) {
-    Log("[SimXR] xrDestroyAction");
+    Log("[OXRWXR] xrDestroyAction");
     return XR_SUCCESS;
 }
 
 static XrResult XRAPI_PTR xrSuggestInteractionProfileBindings_runtime(XrInstance, const XrInteractionProfileSuggestedBinding* bindings) {
     if (!bindings) return XR_ERROR_VALIDATION_FAILURE;
     // interactionProfile is an XrPath (integer), not a C-string
-    Logf("[SimXR] xrSuggestInteractionProfileBindings: profile=0x%llx",
+    Logf("[OXRWXR] xrSuggestInteractionProfileBindings: profile=0x%llx",
          (unsigned long long)bindings->interactionProfile);
     return XR_SUCCESS;
 }
 
 static XrResult XRAPI_PTR xrAttachSessionActionSets_runtime(XrSession, const XrSessionActionSetsAttachInfo* info) {
     if (!info) return XR_ERROR_VALIDATION_FAILURE;
-    Logf("[SimXR] xrAttachSessionActionSets: count=%u", info->countActionSets);
+    Logf("[OXRWXR] xrAttachSessionActionSets: count=%u", info->countActionSets);
     return XR_SUCCESS;
 }
 
@@ -4152,7 +4152,7 @@ static XrResult XRAPI_PTR xrStringToPath_runtime(XrInstance, const char* pathStr
     *path = (XrPath)hash;
     // Store path string for controller detection
     rt::g_pathStrings[*path] = pathString;
-    Logf("[SimXR] xrStringToPath: %s -> %llu", pathString, (unsigned long long)*path);
+    Logf("[OXRWXR] xrStringToPath: %s -> %llu", pathString, (unsigned long long)*path);
     return XR_SUCCESS;
 }
 
@@ -4209,7 +4209,7 @@ static XrResult XRAPI_PTR xrDestroySwapchain_runtime(XrSwapchain sc) {
     }
 
     rt::g_swapchains.erase(it);
-    Logf("[SimXR] xrDestroySwapchain: sc=%p", sc);
+    Logf("[OXRWXR] xrDestroySwapchain: sc=%p", sc);
     return XR_SUCCESS;
 }
 
@@ -4231,7 +4231,7 @@ static XrResult XRAPI_PTR xrGetReferenceSpaceBoundsRect_runtime(XrSession, XrRef
     if (!bounds) return XR_ERROR_VALIDATION_FAILURE;
     bounds->width = 3.0f;
     bounds->height = 3.0f;
-    Log("[SimXR] xrGetReferenceSpaceBoundsRect: 3x3 meters");
+    Log("[OXRWXR] xrGetReferenceSpaceBoundsRect: 3x3 meters");
     return XR_SUCCESS;
 }
 
@@ -4241,7 +4241,7 @@ static XrResult XRAPI_PTR xrGetViewConfigurationProperties_runtime(XrInstance, X
     props->type = XR_TYPE_VIEW_CONFIGURATION_PROPERTIES;
     props->viewConfigurationType = type;
     props->fovMutable = XR_FALSE;
-    Log("[SimXR] xrGetViewConfigurationProperties");
+    Log("[OXRWXR] xrGetViewConfigurationProperties");
     return XR_SUCCESS;
 }
 
@@ -4358,7 +4358,7 @@ static const NameFn kFnTable[] = {
 
 static XrResult XRAPI_PTR xrGetInstanceProcAddr_runtime(XrInstance instance, const char* name, PFN_xrVoidFunction* fn) {
     if (!name || !fn) {
-        Logf("[SimXR] xrGetInstanceProcAddr: ERROR - name=%p, fn=%p", name, fn);
+        Logf("[OXRWXR] xrGetInstanceProcAddr: ERROR - name=%p, fn=%p", name, fn);
         return XR_ERROR_VALIDATION_FAILURE;
     }
     
@@ -4371,14 +4371,14 @@ static XrResult XRAPI_PTR xrGetInstanceProcAddr_runtime(XrInstance instance, con
         if (strcmp(name, e.name) == 0) { 
             *fn = e.fn;
             if (callCount < 100 || strstr(name, "D3D11") || strstr(name, "Create") || strstr(name, "Destroy")) {
-                Logf("[SimXR] xrGetInstanceProcAddr: %s -> FOUND", name);
+                Logf("[OXRWXR] xrGetInstanceProcAddr: %s -> FOUND", name);
             }
             return XR_SUCCESS; 
         }
     }
     
     if (callCount < 100 || strstr(name, "D3D11")) {
-        Logf("[SimXR] xrGetInstanceProcAddr: %s -> NOT FOUND", name);
+        Logf("[OXRWXR] xrGetInstanceProcAddr: %s -> NOT FOUND", name);
     }
     return XR_ERROR_FUNCTION_UNSUPPORTED;
 }
