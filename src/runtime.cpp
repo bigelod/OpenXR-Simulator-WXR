@@ -595,11 +595,11 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         case WM_LBUTTONDOWN:
             Logf("[OXRWXR] WM_LBUTTONDOWN: focused=%d", rt::g_session.isFocused.load());
             if (rt::g_session.isFocused) {
-                rt::g_mouseCapture = true;
+                /*rt::g_mouseCapture = true;
                 SetCapture(hWnd);
                 GetCursorPos(&rt::g_lastMousePos);
                 ShowCursor(FALSE);
-                Log("[OXRWXR] Mouse captured for look control");
+                Log("[OXRWXR] Mouse captured for look control");*/
             }
             return 0;
         case WM_LBUTTONUP:
@@ -659,9 +659,9 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             }
             break;
         case WM_MOUSEWHEEL:
-            if (ui::HandleMouseWheel(hWnd, GET_WHEEL_DELTA_WPARAM(wParam), nullptr)) {
+            /*if (ui::HandleMouseWheel(hWnd, GET_WHEEL_DELTA_WPARAM(wParam), nullptr)) {
                 return 0;
-            }
+            }*/
             break;
         default:
             break;
@@ -1968,7 +1968,8 @@ static XrResult XRAPI_PTR xrWaitFrame_runtime(XrSession, const XrFrameWaitInfo*,
     static double periodSec = 1.0 / 90.0;
     static long long periodNs = (long long)(periodSec * 1e9);
     static double nextTick = [](){ LARGE_INTEGER t; QueryPerformanceCounter(&t); return (double)t.QuadPart; }();
-    
+
+
     // Handle WASD keyboard input for movement (relative to head orientation)
     if (rt::g_session.isFocused) {
         const float moveSpeed = 3.0f;  // meters per second
@@ -1978,7 +1979,7 @@ static XrResult XRAPI_PTR xrWaitFrame_runtime(XrSession, const XrFrameWaitInfo*,
         XrVector3f fwd = rt::RotateVectorByQuaternion(headQ, XrVector3f{0.0f, 0.0f, -1.0f});
         XrVector3f right = rt::RotateVectorByQuaternion(headQ, XrVector3f{1.0f, 0.0f, 0.0f});
 
-        if (GetAsyncKeyState('W') & 0x8000) {
+        /*if (GetAsyncKeyState('W') & 0x8000) {
             rt::g_headPos.x += fwd.x * moveSpeed * deltaTime;
             rt::g_headPos.y += fwd.y * moveSpeed * deltaTime;
             rt::g_headPos.z += fwd.z * moveSpeed * deltaTime;
@@ -1997,7 +1998,7 @@ static XrResult XRAPI_PTR xrWaitFrame_runtime(XrSession, const XrFrameWaitInfo*,
             rt::g_headPos.x += right.x * moveSpeed * deltaTime;
             rt::g_headPos.y += right.y * moveSpeed * deltaTime;
             rt::g_headPos.z += right.z * moveSpeed * deltaTime;
-        }
+        }*/
         if (GetAsyncKeyState('Q') & 0x8000) {
             rt::g_headPos.y -= moveSpeed * deltaTime;
         }
