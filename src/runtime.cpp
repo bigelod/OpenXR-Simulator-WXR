@@ -11,6 +11,7 @@
 #define XR_USE_GRAPHICS_API_OPENGL
 
 #include <windows.h>
+#include <WinUser.h>
 #include <wrl/client.h>
 #include <d3d11.h>
 #include <d3d12.h>
@@ -294,6 +295,41 @@ static std::string retData;
 static std::mutex mtx;
 static std::condition_variable cv;
 
+static std::string hmdMake;
+static std::string hmdModel;
+
+static XrVector3f prevLHandPos[5];
+static XrVector3f prevRHandPos[5];
+static int lastPosFrame = 0;
+static int maxPosBuffer = 1;
+
+static float fovVarA = 1.0f;
+static float fovVarB = 0.0f;
+static float fovVarC = 1.0f;
+static float fovVarD = 0.0f;
+static float fovVarE = 104.5f;
+static float fovVarF = 104.5f;
+
+static bool LTrigger = false;
+static bool LGrip = false;
+static bool LClick = false;
+static bool RTrigger = false;
+static bool RGrip = false;
+static bool RClick = false;
+static bool L_X = false;
+static bool L_Y = false;
+static bool R_A = false;
+static bool R_A_Once = false;
+static bool R_B = false;
+static bool R_B_Once = false;
+static bool L_Menu = false;
+static bool R_ThumbDown = false;
+static bool R_ThumbUp = false;
+static bool UpsideDownHandsFix = false;
+
+static int OpenXRFrameID = 0;
+static int OpenXRFrameWait = 0;
+
 static void ReceiveUDPData()
 {
 	udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
@@ -329,6 +365,7 @@ static void ReceiveUDPData()
 				std::string client;
 				std::vector<float> floats(28);
 				int openXRFrameID;
+				std::string buttonString;
 
 				std::locale c_locale("C");
 				iss.imbue(c_locale);
@@ -338,19 +375,17 @@ static void ReceiveUDPData()
 				{
 					iss >> f;
 				}
-				iss >> openXRFrameID;
+				iss >> openXRFrameID >> buttonString;
 
-				// if (OpenXRFrameID == openXRFrameID)
-				//{
-				// OpenXRFrameWait = 1;
-				//    continue;
-				//}
-				// else
-				//{
-				// OpenXRFrameWait = 0;
-				//}
-
-				// qWarning() << "[WinXrUDP] UDP DATA " + returnData;
+				 if (OpenXRFrameID == openXRFrameID)
+				{
+					OpenXRFrameWait = 1;
+				    continue;
+				}
+				 else
+				{
+				 OpenXRFrameWait = 0;
+				}
 
 				{
 					std::lock_guard<std::mutex> lock(mtx);
@@ -382,7 +417,7 @@ namespace rt {
 	static HWND g_persistentWindow = nullptr;
 	static std::mutex g_windowMutex;
 	static ComPtr<IDXGISwapChain1> g_persistentSwapchain;
-	static UINT g_persistentWidth = 1920; //TODO: Adjust to fit screen always?
+	static UINT g_persistentWidth = 1920; // TODO: Adjust to fit screen always?
 	static UINT g_persistentHeight = 540;
 	static bool g_windowClassRegistered = false;
 
@@ -1168,6 +1203,8 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
 
 	std::filesystem::path tmpPath = "Z:/";
 	std::filesystem::path dirPath = "Z:/tmp/xr";
+	std::filesystem::path confPath = "D:/oxrwxr";
+	std::filesystem::path confFile = confPath / "conf.txt";
 	std::filesystem::path fallbackDir = "D:/xrtemp";
 	std::filesystem::path filePath = dirPath / "vr";
 	std::filesystem::path fallbackFile = fallbackDir / "vr";
@@ -1267,21 +1304,17 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
 		dirPath = fallbackDir;
 	}
 
-	/*std::filesystem::path sysinfoPath = dirPath / "system";
+	std::filesystem::path sysinfoPath = dirPath / "system";
 
-	if (std::filesystem::exists(dirPath) && std::filesystem::is_directory(dirPath))
-	{
-		if (std::filesystem::exists(sysinfoPath) && std::filesystem::is_regular_file(sysinfoPath))
-		{
-			try
-			{
+	if (std::filesystem::exists(dirPath) && std::filesystem::is_directory(dirPath)) {
+		if (std::filesystem::exists(sysinfoPath) && std::filesystem::is_regular_file(sysinfoPath)) {
+			try {
 				std::ifstream sysInfoFile(sysinfoPath);
 
 				std::string hmdMakeStr;
 				std::string hmdModelStr;
 
-				if (sysInfoFile.is_open())
-				{
+				if (sysInfoFile.is_open()) {
 					std::getline(sysInfoFile, hmdMakeStr);
 					std::getline(sysInfoFile, hmdModelStr);
 					sysInfoFile.close();
@@ -1290,45 +1323,74 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
 				hmdMake = hmdMakeStr;
 				hmdModel = hmdModelStr;
 			}
-			catch (const std::filesystem::filesystem_error& e)
-			{
+			catch (const std::filesystem::filesystem_error& e) {
+
 			}
-			catch (const std::exception& e)
-			{
+			catch (const std::exception& e) {
+
 			}
 		}
-	}*/
+	}
 
-	/*if (hmdMake.empty())
-	{
+	if (hmdMake.empty()) {
 		hmdMake = "META";
 	}
-	else if (hmdMake == "OCULUS")
-	{
+	else if (hmdMake == "OCULUS") {
 		hmdMake = "META";
-	}*/
+	}
 
-	// if (hmdModel.empty())
-	//{
-	//     hmdModel = "QUEST 3";
-	// }
-	// else if (hmdModel == "EUREKA" || hmdModel == "PANTHER")
-	//{
-	//     hmdModel = "QUEST 3";
-	// }
-	// else if (hmdMake == "META")
-	//{
-	//     // SEACLIFF - Quest Pro - Untested, assuming hands upside down
-	//     // HOLLYWOOD - Quest 2 - Works! Hands upside down, performance is OK (much better with Turnip driver)
-	//     // MONTEREY - Quest 1 - Untested, unsupported
-	//     hmdModel = "QUEST 2";
-	// }
+	if (hmdModel.empty()) {
+		hmdModel = "QUEST 3";
+	}
+	else if (hmdModel == "EUREKA" || hmdModel == "PANTHER") {
+		hmdModel = "QUEST 3";
+	}
+	else if (hmdMake == "META") {
+		//SEACLIFF - Quest Pro - Untested, assuming hands upside down
+		//HOLLYWOOD - Quest 2 - Works! Hands upside down, performance is OK (much better with Turnip driver)
+		//MONTEREY - Quest 1 - Untested, unsupported
+		hmdModel = "QUEST 2";
+	}
+
+	//Look for the flag to force hand fix ON always:
+	std::filesystem::path handFixFile = confPath / "handsfix.txt";
+
+	if (std::filesystem::exists(handFixFile) && std::filesystem::is_regular_file(handFixFile)) {
+		hmdMake = "FORCE FIX HANDS";
+	}
+
+	//XRTODO: define the conf data expected and allow it to be sent here
+	//Load the config for the OXRWXR runtime
+	if (std::filesystem::exists(confPath) && std::filesystem::is_directory(confPath)) {
+		if (std::filesystem::exists(confFile) && std::filesystem::is_regular_file(confFile)) {
+			try {
+				std::ifstream confFileOpen(confFile);
+
+				std::string confLine1;
+				std::string confLine2;
+
+				if (confFileOpen.is_open()) {
+					std::getline(confFileOpen, confLine1);
+					std::getline(confFileOpen, confLine2);
+					confFileOpen.close();
+				}
+
+				//Logf("[WinXrApi] Conf found: %s, %s", confLine1, confLine2);
+			}
+			catch (const std::filesystem::filesystem_error& e) {
+
+			}
+			catch (const std::exception& e) {
+
+			}
+		}
+	}
 
 	Logf("[WinXrUDP] Starting UDP");
 	udpReadThread = std::thread(ReceiveUDPData);
 	udpReadThread.detach();
 
-	std::string aerMode = "-1";
+	std::string aerMode = "0";
 
 	// AER is not likely necessary for non-VR apps, they can use SBS via reshade most often
 	/*if (bEnableAltEyeRendering)
@@ -1339,8 +1401,8 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
 	float targetFOVH = 104.5;
 	float targetFOVW = 104.5;
 
-	//TODO: SendData
-	//SendData("0 0 2 " + aerMode + " " + std::to_string(targetFOVH) + " " + std::to_string(targetFOVW));
+	//XRTODO: SendData
+	//SendData("0 0 1 " + aerMode + " " + std::to_string(targetFOVH) + " " + std::to_string(targetFOVW));
 
 	if (!createInfo || !instance) return XR_ERROR_VALIDATION_FAILURE;
 	// applicationName may not be null-terminated
@@ -1349,6 +1411,7 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
 	Logf("[OXRWXR] xrCreateInstance: app=%s version=%u",
 		appName,
 		createInfo->applicationInfo.applicationVersion);
+
 	rt::g_instance = {};
 	rt::g_instance.enabledExtensions.clear();
 
@@ -2767,6 +2830,40 @@ static void ensurePreviewSized(rt::Session& s, UINT width, UINT height, DXGI_FOR
 			ui::g_uiState.windowWidth = width;
 			ui::g_uiState.windowHeight = height;
 
+
+
+			//----------------
+			//OXRWXR CHANGE:
+			//---------------- 
+			//  Make the window fullscreen borderless
+			RECT rc2;
+			GetWindowRect(s.hwnd, &rc2);
+
+			bool fullScreenDisplay = true;
+
+			if (fullScreenDisplay) {
+				rc2.left -= rc2.left;
+				rc2.top -= rc2.top;
+
+				int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+				int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+				rc2.right = screenWidth;
+				rc2.bottom = screenHeight;
+			}
+
+			// Modify window style
+			LONG_PTR style = GetWindowLongPtr(s.hwnd, GWL_STYLE);
+			style &= ~(WS_THICKFRAME | WS_BORDER | WS_CAPTION);
+			SetWindowLongPtr(s.hwnd, GWL_STYLE, style);
+
+			// Update window position and size
+			SetWindowPos(s.hwnd, HWND_TOP,
+				rc2.left, rc2.top,
+				rc2.right - rc2.left, rc2.bottom - rc2.top,
+				SWP_FRAMECHANGED);
+
+			SetForegroundWindow(s.hwnd);
+
 			// Also save to persistent storage right away
 			{
 				std::lock_guard<std::mutex> lock(rt::g_windowMutex);
@@ -2862,6 +2959,7 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
 	//OXRWXR CHANGE:
 	//---------------- 
 	// Red sync for (DX11)
+	//XRTODO PULL THIS VALUE FROM OXR FRAME ID
 	int redIntensity = 255;
 
 	if (!rtv) {
@@ -3223,6 +3321,7 @@ static void blitD3D12ToPreview(rt::Session& s,
 			//OXRWXR CHANGE:
 			//---------------- 
 			// Now with red sync for (DX12)
+			//XRTODO: Pull this from OpenXR Frame ID, and adjust so it is on a 1.0 scale instead (value / 255.0f?)
 			float redIntensity = 1.0f;
 
 			if (idx >= chain.images12.size() || !chain.images12[idx]) return false;
@@ -3818,7 +3917,8 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
 			vpOXR.MinDepth = 0;
 			vpOXR.MaxDepth = 1;
 
-			blitRedQuad(vpOXR);
+			//XRTODO: Pass OpenXR Frame ID sync
+			blitRedQuad(vpOXR);//, redIntensity);
 
 			// Update window title with FPS
 			static int glTitleFrameCount = 0;

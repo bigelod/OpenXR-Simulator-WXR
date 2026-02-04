@@ -68,10 +68,11 @@ enum class DisplayLayout {
 
 // UI State
 struct UIState {
+    //XRTODO: Change this starting view mode based on this a config file instead maybe? also FOV?
     ViewMode viewMode = ViewMode::BothEyes;
     DisplayLayout displayLayout = DisplayLayout::SideBySide;
     bool showStats = false;
-    float zoomLevel = 0.5f;  // 0.25 = 25%, 0.5 = 50%, 1.0 = 100%, etc.
+    float zoomLevel = 1.0f;  // 0.25 = 25%, 0.5 = 50%, 1.0 = 100%, etc.
     bool fitToWindow = true; // If true, auto-fit zoom to window size
     int windowWidth = 1280;
     int windowHeight = 720;
@@ -115,6 +116,8 @@ inline void SetCaptionColor(HWND hwnd, COLORREF color) {
 
 // Create the application menu
 inline HMENU CreateAppMenu() {
+    //XRTODO: Add debug option to show the menu
+    return NULL;
     HMENU menuBar = CreateMenu();
 
     // View Menu
