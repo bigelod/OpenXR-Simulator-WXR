@@ -1,5 +1,5 @@
-#pragma once
-#pragma comment(lib, "ws2_32.lib")
+#include "WinXrApiUDP.h"
+
 // Minimal OpenXR WXR Runtime (D3D11/D3D12/OpenGL)
 // - Implements enough of the runtime interface to let OpenXR apps start and render into runtime-owned swapchains
 // - Opens a desktop window and presents the app's submitted images side-by-side
@@ -285,15 +285,7 @@ static DXGI_FORMAT ToTypeless(DXGI_FORMAT format) {
 //OXRWXR CHANGE:
 //---------------- 
 // Create global variables
-static int udpPort = 7872;
-static int udpSocket;
-static int udpSendPort = 7278;
-static int udpSendSocket;
-
-static std::thread udpReadThread;
-static std::string retData;
-static std::mutex mtx;
-static std::condition_variable cv;
+static WinXrApiUDP* udpReader;
 
 static std::string hmdMake;
 static std::string hmdModel;
@@ -330,76 +322,114 @@ static bool UpsideDownHandsFix = false;
 static int OpenXRFrameID = 0;
 static int OpenXRFrameWait = 0;
 
-static void ReceiveUDPData()
-{
-	udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
-	struct sockaddr_in serverAddr, clientAddr;
-	memset(&serverAddr, 0, sizeof(serverAddr));
-	serverAddr.sin_family = AF_INET;
-	serverAddr.sin_addr.s_addr = INADDR_ANY;
-	serverAddr.sin_port = htons(udpPort);
-
-	try
-	{
-		bind(udpSocket, (struct sockaddr*)&serverAddr, sizeof(serverAddr));
-	}
-	catch (const std::exception& e)
-	{
-		Logf("[WinXrUDP] Error starting UDP receiver: %s", e.what());
-	}
-
-	while (true)
-	{
-		try
-		{
-			char buffer[1024];
-			int addrLen = sizeof(clientAddr);
-			ptrdiff_t bytesReceived = recvfrom(udpSocket, buffer, sizeof(buffer), 0, (struct sockaddr*)&clientAddr, &addrLen);
-
-			if (bytesReceived > 0 && bytesReceived < 1024)
-			{
-				buffer[bytesReceived] = '\0';
-				std::string returnData(buffer);
-
-				std::istringstream iss(returnData);
-				std::string client;
-				std::vector<float> floats(28);
-				int openXRFrameID;
-				std::string buttonString;
-
-				std::locale c_locale("C");
-				iss.imbue(c_locale);
-
-				iss >> client;
-				for (auto& f : floats)
-				{
-					iss >> f;
-				}
-				iss >> openXRFrameID >> buttonString;
-
-				 if (OpenXRFrameID == openXRFrameID)
-				{
-					OpenXRFrameWait = 1;
-				    continue;
-				}
-				 else
-				{
-				 OpenXRFrameWait = 0;
-				}
-
-				{
-					std::lock_guard<std::mutex> lock(mtx);
-					retData = returnData;
-				}
-				cv.notify_all();
-			}
-		}
-		catch (const std::exception& e)
-		{
-			Logf("[WinXrUDP] Error receiving UDP data: %s", e.what());
-		}
-	}
-}
+//static void ReceiveUDPData()
+//{
+//	udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
+//	struct sockaddr_in serverAddr, clientAddr;
+//	memset(&serverAddr, 0, sizeof(serverAddr));
+//	serverAddr.sin_family = AF_INET;
+//	serverAddr.sin_addr.s_addr = INADDR_ANY;
+//	serverAddr.sin_port = htons(udpPort);
+//
+//	try
+//	{
+//		bind(udpSocket, (struct sockaddr*)&serverAddr, sizeof(serverAddr));
+//	}
+//	catch (const std::exception& e)
+//	{
+//		Logf("[WinXrUDP] Error starting UDP receiver: %s", e.what());
+//	}
+//
+//	while (true)
+//	{
+//		try
+//		{
+//			char buffer[1024];
+//			int addrLen = sizeof(clientAddr);
+//			ptrdiff_t bytesReceived = recvfrom(udpSocket, buffer, sizeof(buffer), 0, (struct sockaddr*)&clientAddr, &addrLen);
+//
+//			if (bytesReceived > 0 && bytesReceived < 1024)
+//			{
+//				buffer[bytesReceived] = '\0';
+//				std::string returnData(buffer);
+//
+//				std::istringstream iss(returnData);
+//				std::string client;
+//				std::vector<float> floats(28);
+//				int openXRFrameID;
+//				std::string buttonString;
+//
+//				std::locale c_locale("C");
+//				iss.imbue(c_locale);
+//
+//				iss >> client;
+//				for (auto& f : floats)
+//				{
+//					iss >> f;
+//				}
+//				iss >> openXRFrameID >> buttonString;
+//
+//				if (OpenXRFrameID == openXRFrameID)
+//				{
+//					OpenXRFrameWait = 1;
+//					continue;
+//				}
+//				else
+//				{
+//					OpenXRFrameWait = 0;
+//				}
+//
+//				Logf("[WinXrUDP] UDP data: %s", returnData);
+//
+//				{
+//					std::lock_guard<std::mutex> lock(mtx);
+//					retData = returnData;
+//				}
+//				cv.notify_all();
+//			}
+//		}
+//		catch (const std::exception& e)
+//		{
+//			Logf("[WinXrUDP] Error receiving UDP data: %s", e.what());
+//		}
+//	}
+//}
+//
+//static void SendData(std::string sendData)
+//{
+//	try
+//	{
+//		struct sockaddr_in targetAddress;
+//		udpSendSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+//		if (udpSendSocket == INVALID_SOCKET) {
+//			Logf("[WinXrUDP] Error sending UDP data: socket creation failed");
+//			return;
+//		}
+//
+//		targetAddress.sin_family = AF_INET;
+//		targetAddress.sin_port = htons(udpSendPort);
+//		inet_pton(AF_INET, "127.0.0.1", &targetAddress.sin_addr);
+//
+//		int result = sendto(udpSendSocket, sendData.c_str(), sendData.length(), 0, (struct sockaddr*)&targetAddress, sizeof(targetAddress));
+//		if (result == SOCKET_ERROR) {
+//			Logf("[WinXrUDP] sendto failed with error: %s", WSAGetLastError());
+//		}
+//
+//		closesocket(udpSendSocket);
+//	}
+//	catch (const std::exception& e)
+//	{
+//		Logf("[WinXrUDP] Error sending UDP data: %s", e.what());
+//	}
+//}
+//
+//static std::string GetRetData() {
+//	std::unique_lock<std::mutex> lock(mtx);
+//	cv.wait(lock, [] { return !retData.empty(); });
+//	std::string ret = retData;
+//	retData.clear();
+//	return ret;
+//}
 
 // Runtime state
 namespace rt {
@@ -1387,8 +1417,7 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
 	}
 
 	Logf("[WinXrUDP] Starting UDP");
-	udpReadThread = std::thread(ReceiveUDPData);
-	udpReadThread.detach();
+	udpReader = new WinXrApiUDP();
 
 	std::string aerMode = "0";
 
@@ -1401,8 +1430,10 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
 	float targetFOVH = 104.5;
 	float targetFOVW = 104.5;
 
-	//XRTODO: SendData
-	//SendData("0 0 1 " + aerMode + " " + std::to_string(targetFOVH) + " " + std::to_string(targetFOVW));
+	if (udpReader) {
+		//Now we send the VR mode enable and target FOV of WinlatorXR at startup
+		udpReader->SendData("0 0 1 " + aerMode + " " + std::to_string(fovVarE) + " " + std::to_string(fovVarF));
+	}
 
 	if (!createInfo || !instance) return XR_ERROR_VALIDATION_FAILURE;
 	// applicationName may not be null-terminated
@@ -1446,10 +1477,10 @@ static XrResult XRAPI_PTR xrDestroyInstance_runtime(XrInstance instance) {
 	try
 	{
 		Logf("[WinXrUDP] Shutting Down UDP");
-		udpReadThread.~thread();
-		udpReadThread = std::thread();
-		closesocket(udpSocket);
-		WSACleanup();
+		if (udpReader) {
+			udpReader->KillReceiver();
+			udpReader = nullptr;
+		}
 	}
 	catch (const std::exception& e)
 	{
@@ -2488,6 +2519,114 @@ static XrResult XRAPI_PTR xrWaitFrame_runtime(XrSession, const XrFrameWaitInfo*,
 	//OXRWXR CHANGE:
 	//---------------- 
 	// Now we pass 6DOF data always
+	std::string txt = udpReader->GetRetData();
+
+	//Example return data:
+	//client0 0.213 0.287 -0.933 0.035 0.0 0.0 -0.008 -0.229 -0.173 0.095 -0.296 0.947 -0.077 0.0 0.0 0.154 -0.240 -0.140 0.146 -0.072 0.048 0.985 0.037 0.006 -0.017 0.0678 99.00 103.40 224 TFFFFFFFFFTTTFFFFFT
+
+	std::istringstream iss(txt);
+	std::string client;
+	std::vector<float> floats(28);
+	int openXRFrameID;
+	std::string buttonString;
+
+	std::locale c_locale("C");
+	iss.imbue(c_locale);
+
+	// Parse client string
+	iss >> client;
+
+	// Parse float values
+	for (auto& f : floats) {
+		iss >> f;
+	}
+
+	// Parse integer value and last string
+	iss >> openXRFrameID >> buttonString; //>> hmdString;
+
+	OpenXRFrameID = openXRFrameID;
+
+	Logf("UDP string: %s", txt.c_str());
+
+	std::vector<bool> buttonBools;
+
+	if (buttonString.empty()) {
+		buttonString = "FFFFFFFFFFFFFFFFFFF";
+	}
+
+	for (char c : buttonString) {
+		if (c == 'F') {
+			buttonBools.push_back(false);
+		}
+		else if (c == 'T') {
+			buttonBools.push_back(true);
+		}
+	}
+
+	//FLOATS:
+	//Left Hand Quaternion X, Left Hand Quaternion Y, Left Hand Quaternion Z, Left Hand Quaternion W, Left Hand Thumbstick X, Left Hand Thumbstick Y, 
+	//Left Hand X Position, Left Hand Y Position, Left Hand Z Position,
+	//Right Hand Quaternion X, Right Hand Quaternion Y, Right Hand Quaternion Z, Right Hand Quaternion W, Right Hand Thumbstick X, Right Hand Thumbstick Y, 
+	//Right Hand X Position, Right Hand Y Position, Right Hand Z Position,
+	//HMD Quaternion X, HMD Quaternion Y, HMD Quaternion Z, HMD Quaternion W, HMD X Position, HMD Y position, HMD Z Position, 
+	//Current IPD, Current FOV Horizontal, Current FOV Vertical, XR Frame ID, Button String
+
+	//BUTTONS:
+	//L_GRIP, L_MENU, L_THUMBSTICK_PRESS, L_THUMBSTICK_LEFT, L_THUMBSTICK_RIGHT, L_THUMBSTICK_UP, L_THUMBSTICK_DOWN, L_TRIGGER, L_X, L_Y, 
+	//R_A, R_B, R_GRIP, R_THUMBSTICK_PRESS, R_THUMBSTICK_LEFT, R_THUMBSTICK_RIGHT, R_THUMBSTICK_UP, R_THUMBSTICK_DOWN, R_TRIGGER
+
+	//LHandQuat = Vector4(floats[0], floats[1], floats[2], floats[3]);
+	//LHandPos = Vector3(floats[6], floats[7], floats[8]);
+	//LThumbstick = Vector2(floats[4], floats[5]);
+
+	//RHandQuat = Vector4(floats[9], floats[10], floats[11], floats[12]);
+	//RHandPos = Vector3(floats[15], floats[16], floats[17]);
+	//RThumbstick = Vector2(floats[13], floats[14]);
+
+	//HMDQuat = Vector4(floats[18], floats[19], floats[20], floats[21]);
+	//HMDPos = Vector3(floats[22], floats[23], floats[24]);
+
+	//IPDVal = floats[25];
+	//FOVH = (floats[26] + 30.0f); // * 0.80f;
+	//FOVV = (floats[27] - 20.0f); // * 0.80f;
+
+	//Alternate attempt at FOV manipulation
+	//FOVH = (fovVarA * floats[26]) + fovVarB;
+	//FOVV = (fovVarC * floats[27]) + fovVarD;
+
+	//FOVTotal = FOVH / FOVV;
+
+	LTrigger = buttonBools[7];
+	LGrip = buttonBools[0];
+	LClick = buttonBools[2];
+	RTrigger = buttonBools[18];
+	RGrip = buttonBools[12];
+	RClick = buttonBools[13];
+	L_X = buttonBools[8];
+	L_Y = buttonBools[9];
+	R_A = buttonBools[10];
+	R_B = buttonBools[11];
+	L_Menu = buttonBools[1];
+
+	R_ThumbUp = buttonBools[16];
+	R_ThumbDown = buttonBools[17];
+
+	//PICO and Quest 2 are both tested to need the hand orientation flipped, assume the same for Quest Pro for now
+	if (hmdMake == "PICO" || hmdModel == "QUEST 2" || hmdMake == "PLAY FOR DREAM" || hmdMake == "FORCE FIX HANDS") {
+		UpsideDownHandsFix = true;
+	}
+	else {
+		UpsideDownHandsFix = false;
+	}
+
+	//Brute force melee gesture logging
+	//prevLHandPos[lastPosFrame] = LHandPos;
+	//prevRHandPos[lastPosFrame] = RHandPos;
+
+	lastPosFrame += 1;
+	if (lastPosFrame > 4) {
+		lastPosFrame = 0;
+	}
 
 
 	//rt::g_headRoll += moveSpeed * deltaTime;
@@ -3138,7 +3277,7 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
 			s.d3d11Context->CopySubresourceRegion(viewTexture.Get(), 0, 0, 0, 0, sourceTexture.Get(), srcSubresource, nullptr);
 		}
 	}
-	
+
 	//----------------
 	//OXRWXR CHANGE:
 	//---------------- 
@@ -3170,7 +3309,7 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
 				data[i * 4 + 2] = 0;   // B
 				data[i * 4 + 3] = 255; // A
 			}
-		}		
+		}
 
 		s.d3d11Context->UpdateSubresource(viewTexture.Get(), 0, &redBox, data, pitch, 0);
 	}
