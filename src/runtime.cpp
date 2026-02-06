@@ -302,6 +302,11 @@ static float fovVarD = 0.0f;
 static float fovVarE = 104.5f;
 static float fovVarF = 104.5f;
 
+static float IPDVal;
+static float FOVH;
+static float FOVV;
+static float FOVTotal = 1.0472f;
+
 static bool LTrigger = false;
 static bool LGrip = false;
 static bool LClick = false;
@@ -319,117 +324,49 @@ static bool R_ThumbDown = false;
 static bool R_ThumbUp = false;
 static bool UpsideDownHandsFix = false;
 
+static XrVector3f HMDPos;
+static XrVector3f LHandPos;
+static XrVector3f RHandPos;
+static XrVector4f HMDQuat;
+static XrVector4f LHandQuat;
+static XrVector4f RHandQuat;
+static XrVector2f LThumbstick;
+static XrVector2f RThumbstick;
+
 static int OpenXRFrameID = 0;
 static int OpenXRFrameWait = 0;
 
-//static void ReceiveUDPData()
-//{
-//	udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
-//	struct sockaddr_in serverAddr, clientAddr;
-//	memset(&serverAddr, 0, sizeof(serverAddr));
-//	serverAddr.sin_family = AF_INET;
-//	serverAddr.sin_addr.s_addr = INADDR_ANY;
-//	serverAddr.sin_port = htons(udpPort);
-//
-//	try
-//	{
-//		bind(udpSocket, (struct sockaddr*)&serverAddr, sizeof(serverAddr));
-//	}
-//	catch (const std::exception& e)
-//	{
-//		Logf("[WinXrUDP] Error starting UDP receiver: %s", e.what());
-//	}
-//
-//	while (true)
-//	{
-//		try
-//		{
-//			char buffer[1024];
-//			int addrLen = sizeof(clientAddr);
-//			ptrdiff_t bytesReceived = recvfrom(udpSocket, buffer, sizeof(buffer), 0, (struct sockaddr*)&clientAddr, &addrLen);
-//
-//			if (bytesReceived > 0 && bytesReceived < 1024)
-//			{
-//				buffer[bytesReceived] = '\0';
-//				std::string returnData(buffer);
-//
-//				std::istringstream iss(returnData);
-//				std::string client;
-//				std::vector<float> floats(28);
-//				int openXRFrameID;
-//				std::string buttonString;
-//
-//				std::locale c_locale("C");
-//				iss.imbue(c_locale);
-//
-//				iss >> client;
-//				for (auto& f : floats)
-//				{
-//					iss >> f;
-//				}
-//				iss >> openXRFrameID >> buttonString;
-//
-//				if (OpenXRFrameID == openXRFrameID)
-//				{
-//					OpenXRFrameWait = 1;
-//					continue;
-//				}
-//				else
-//				{
-//					OpenXRFrameWait = 0;
-//				}
-//
-//				Logf("[WinXrUDP] UDP data: %s", returnData);
-//
-//				{
-//					std::lock_guard<std::mutex> lock(mtx);
-//					retData = returnData;
-//				}
-//				cv.notify_all();
-//			}
-//		}
-//		catch (const std::exception& e)
-//		{
-//			Logf("[WinXrUDP] Error receiving UDP data: %s", e.what());
-//		}
-//	}
-//}
-//
-//static void SendData(std::string sendData)
-//{
-//	try
-//	{
-//		struct sockaddr_in targetAddress;
-//		udpSendSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-//		if (udpSendSocket == INVALID_SOCKET) {
-//			Logf("[WinXrUDP] Error sending UDP data: socket creation failed");
-//			return;
-//		}
-//
-//		targetAddress.sin_family = AF_INET;
-//		targetAddress.sin_port = htons(udpSendPort);
-//		inet_pton(AF_INET, "127.0.0.1", &targetAddress.sin_addr);
-//
-//		int result = sendto(udpSendSocket, sendData.c_str(), sendData.length(), 0, (struct sockaddr*)&targetAddress, sizeof(targetAddress));
-//		if (result == SOCKET_ERROR) {
-//			Logf("[WinXrUDP] sendto failed with error: %s", WSAGetLastError());
-//		}
-//
-//		closesocket(udpSendSocket);
-//	}
-//	catch (const std::exception& e)
-//	{
-//		Logf("[WinXrUDP] Error sending UDP data: %s", e.what());
-//	}
-//}
-//
-//static std::string GetRetData() {
-//	std::unique_lock<std::mutex> lock(mtx);
-//	cv.wait(lock, [] { return !retData.empty(); });
-//	std::string ret = retData;
-//	retData.clear();
-//	return ret;
-//}
+static XrVector2f makeXrVector2f(float x, float y) {
+	XrVector2f vec;
+	vec.x = x;
+	vec.y = y;
+	return vec;
+}
+
+static XrVector3f makeXrVector3f(float x, float y, float z) {
+	XrVector3f vec;
+	vec.x = x;
+	vec.y = y;
+	vec.z = z;
+	return vec;
+}
+
+static XrVector4f makeXrVector4f(float x, float y, float z, float w) {
+	XrVector4f quat;
+	quat.x = x;
+	quat.y = y;
+	quat.z = z;
+	quat.w = w;
+	return quat;
+}
+
+static XrVector4f QuaternionMultiply(const XrVector4f& q1, const XrVector4f& q2) {
+	return XrVector4f{
+		q1.w * q2.x + q1.x * q2.w + q1.y * q2.z - q1.z * q2.y,
+		q1.w * q2.y - q1.x * q2.z + q1.y * q2.w + q1.z * q2.x,
+		q1.w * q2.z + q1.x * q2.y - q1.y * q2.x + q1.z * q2.w,
+		q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z };
+}
 
 // Runtime state
 namespace rt {
@@ -594,23 +531,37 @@ namespace rt {
 	static XrTime g_lastFrameTime = 0;
 
 	// Get controller world pose (combines head pose with controller offset)
-	static void GetControllerPose(const ControllerState& ctrl, XrPosef* outPose) {
+	static void GetControllerPose(const ControllerState& ctrl, XrPosef* outPose, bool isRight) {
+		//----------------
+		//OXRWXR CHANGE:
+		//---------------- 
+		// We get real position + rotation now
+		
 		// Controller orientation = head orientation + controller offsets
-		float totalYaw = g_headYaw + ctrl.yawOffset;
-		float totalPitch = g_headPitch + ctrl.pitchOffset;
-		float totalRoll = g_headRoll + ctrl.rollOffset;
-		outPose->orientation = QuatFromYawPitchRoll(totalYaw, totalPitch, totalRoll); //QuatFromYawPitch(totalYaw, totalPitch);
+		//float totalYaw = g_headYaw + ctrl.yawOffset;
+		//float totalPitch = g_headPitch + ctrl.pitchOffset;
+		//float totalRoll = g_headRoll + ctrl.rollOffset;
+		//outPose->orientation = QuatFromYawPitchRoll(totalYaw, totalPitch, totalRoll); //QuatFromYawPitch(totalYaw, totalPitch);
 
 		// Controller position = head position + rotated offset
 		// Rotate the offset by head yaw only (not pitch) for natural hand movement
-		XrQuaternionf headYawQ = QuatFromYawPitch(g_headYaw, 0.0f);
+		//XrQuaternionf headYawQ = QuatFromYawPitch(g_headYaw, 0.0f);
 
 		// Simple rotation of offset by head yaw
-		float cosY = cosf(g_headYaw);
-		float sinY = sinf(g_headYaw);
-		outPose->position.x = g_headPos.x + ctrl.posOffset.x * cosY - ctrl.posOffset.z * sinY;
-		outPose->position.y = g_headPos.y + ctrl.posOffset.y;
-		outPose->position.z = g_headPos.z + ctrl.posOffset.x * sinY + ctrl.posOffset.z * cosY;
+		//float cosY = cosf(g_headYaw);
+		//float sinY = sinf(g_headYaw);
+		//outPose->position.x = g_headPos.x + ctrl.posOffset.x * cosY - ctrl.posOffset.z * sinY;
+		//outPose->position.y = g_headPos.y + ctrl.posOffset.y;
+		//outPose->position.z = g_headPos.z + ctrl.posOffset.x * sinY + ctrl.posOffset.z * cosY;
+
+		if (isRight) {
+			outPose->orientation = { RHandQuat.x, RHandQuat.y, RHandQuat.z, RHandQuat.w };
+			outPose->position = RHandPos;
+		}
+		else {
+			outPose->orientation = { LHandQuat.x, LHandQuat.y, LHandQuat.z, LHandQuat.w };
+			outPose->position = LHandPos;
+		}
 	}
 
 	// Helper function to create quaternion from yaw and pitch
@@ -940,7 +891,7 @@ namespace rt {
 		case WM_COMMAND:
 			if (ui::HandleMenuCommand(hWnd, wParam,
 				[]() { /* Resize handled by presentProjection based on zoom */ },
-				[]() { mcp::g_screenshotRequested = true; },
+				//[]() { mcp::g_screenshotRequested = true; },
 				[]() { rt::g_headPos = { 0, 1.7f, 0 }; rt::g_headYaw = 0; rt::g_headPitch = 0; }
 			)) {
 				return 0;
@@ -950,7 +901,7 @@ namespace rt {
 			if (!rt::g_mouseCapture) {
 				if (ui::HandleKeyboardShortcut(hWnd, wParam,
 					[]() { /* Resize handled by presentProjection based on zoom */ },
-					[]() { mcp::g_screenshotRequested = true; },
+					//[]() { mcp::g_screenshotRequested = true; },
 					[]() { rt::g_headPos = { 0, 1.7f, 0 }; rt::g_headYaw = 0; rt::g_headPitch = 0; }
 				)) {
 					return 0;
@@ -1419,7 +1370,7 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
 	Logf("[WinXrUDP] Starting UDP");
 	udpReader = new WinXrApiUDP();
 
-	std::string aerMode = "0";
+	std::string aerMode = "1"; //3D SBS (0 for monocular VR)
 
 	// AER is not likely necessary for non-VR apps, they can use SBS via reshade most often
 	/*if (bEnableAltEyeRendering)
@@ -2546,7 +2497,7 @@ static XrResult XRAPI_PTR xrWaitFrame_runtime(XrSession, const XrFrameWaitInfo*,
 
 	OpenXRFrameID = openXRFrameID;
 
-	Logf("UDP string: %s", txt.c_str());
+	//Logf("UDP string: %s", txt.c_str());
 
 	std::vector<bool> buttonBools;
 
@@ -2575,26 +2526,26 @@ static XrResult XRAPI_PTR xrWaitFrame_runtime(XrSession, const XrFrameWaitInfo*,
 	//L_GRIP, L_MENU, L_THUMBSTICK_PRESS, L_THUMBSTICK_LEFT, L_THUMBSTICK_RIGHT, L_THUMBSTICK_UP, L_THUMBSTICK_DOWN, L_TRIGGER, L_X, L_Y, 
 	//R_A, R_B, R_GRIP, R_THUMBSTICK_PRESS, R_THUMBSTICK_LEFT, R_THUMBSTICK_RIGHT, R_THUMBSTICK_UP, R_THUMBSTICK_DOWN, R_TRIGGER
 
-	//LHandQuat = Vector4(floats[0], floats[1], floats[2], floats[3]);
-	//LHandPos = Vector3(floats[6], floats[7], floats[8]);
-	//LThumbstick = Vector2(floats[4], floats[5]);
+	LHandQuat = makeXrVector4f(floats[0], floats[1], floats[2], floats[3]);
+	LHandPos = makeXrVector3f(floats[6], floats[7], floats[8]);
+	LThumbstick = makeXrVector2f(floats[4], floats[5]);
 
-	//RHandQuat = Vector4(floats[9], floats[10], floats[11], floats[12]);
-	//RHandPos = Vector3(floats[15], floats[16], floats[17]);
-	//RThumbstick = Vector2(floats[13], floats[14]);
+	RHandQuat = makeXrVector4f(floats[9], floats[10], floats[11], floats[12]);
+	RHandPos = makeXrVector3f(floats[15], floats[16], floats[17]);
+	RThumbstick = makeXrVector2f(floats[13], floats[14]);
 
-	//HMDQuat = Vector4(floats[18], floats[19], floats[20], floats[21]);
-	//HMDPos = Vector3(floats[22], floats[23], floats[24]);
+	HMDQuat = makeXrVector4f(floats[18], floats[19], floats[20], floats[21]);
+	HMDPos = makeXrVector3f(floats[22], floats[23], floats[24]);
 
-	//IPDVal = floats[25];
-	//FOVH = (floats[26] + 30.0f); // * 0.80f;
-	//FOVV = (floats[27] - 20.0f); // * 0.80f;
+	IPDVal = floats[25];
+	FOVH = (floats[26] + 30.0f); // * 0.80f;
+	FOVV = (floats[27] - 20.0f); // * 0.80f;
 
 	//Alternate attempt at FOV manipulation
-	//FOVH = (fovVarA * floats[26]) + fovVarB;
-	//FOVV = (fovVarC * floats[27]) + fovVarD;
+	FOVH = (fovVarA * floats[26]) + fovVarB;
+	FOVV = (fovVarC * floats[27]) + fovVarD;
 
-	//FOVTotal = FOVH / FOVV;
+	FOVTotal = FOVH / FOVV;
 
 	LTrigger = buttonBools[7];
 	LGrip = buttonBools[0];
@@ -2633,226 +2584,243 @@ static XrResult XRAPI_PTR xrWaitFrame_runtime(XrSession, const XrFrameWaitInfo*,
 
 
 	// Handle WASD keyboard input for movement (relative to head orientation)
-	if (rt::g_session.isFocused) {
-		const float moveSpeed = 3.0f;  // meters per second
-		float deltaTime = (float)periodSec;
+	//if (rt::g_session.isFocused) {
+	const float moveSpeed = 3.0f;  // meters per second
+	float deltaTime = (float)periodSec;
 
-		XrQuaternionf headQ = rt::QuatFromYawPitchRoll(rt::g_headYaw, rt::g_headPitch, rt::g_headRoll);
-		XrVector3f fwd = rt::RotateVectorByQuaternion(headQ, XrVector3f{ 0.0f, 0.0f, -1.0f });
-		XrVector3f right = rt::RotateVectorByQuaternion(headQ, XrVector3f{ 1.0f, 0.0f, 0.0f });
+	//----------------
+	//OXRWXR CHANGE:
+	//---------------- 
+	// Update position and rotation of the head
+	/*XrVector4f quat = XrVector4f{ HMDQuat.x, HMDQuat.y, -HMDQuat.z, HMDQuat.w };
 
-		/*if (GetAsyncKeyState('W') & 0x8000) {
-			rt::g_headPos.x += fwd.x * moveSpeed * deltaTime;
-			rt::g_headPos.y += fwd.y * moveSpeed * deltaTime;
-			rt::g_headPos.z += fwd.z * moveSpeed * deltaTime;
+	auto quatToEuler = [](const XrVector4f& q) {
+		float roll = atan2f(2 * (q.w * q.x + q.y * q.z), 1 - 2 * (q.x * q.x + q.y * q.y));
+		float pitch = asinf(std::max(-1.0f, std::min(1.0f, 2 * (q.w * q.y - q.z * q.x))));
+		float yaw = atan2f(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z));
+		return std::make_tuple(yaw, pitch, roll);
+		};*/
+
+	//std::tie(rt::g_headPitch, rt::g_headYaw, rt::g_headRoll) = quatToEuler(quat);
+
+	//XrQuaternionf headQ = { quat.x, quat.y, quat.z, quat.w }; //rt::QuatFromYawPitchRoll(rt::g_headYaw, rt::g_headPitch, rt::g_headRoll);
+	//XrVector3f fwd = rt::RotateVectorByQuaternion(headQ, XrVector3f{ 0.0f, 0.0f, -1.0f });
+	//XrVector3f right = rt::RotateVectorByQuaternion(headQ, XrVector3f{ 1.0f, 0.0f, 0.0f });
+
+	rt::g_headPos = HMDPos;
+
+	/*if (GetAsyncKeyState('W') & 0x8000) {
+		rt::g_headPos.x += fwd.x * moveSpeed * deltaTime;
+		rt::g_headPos.y += fwd.y * moveSpeed * deltaTime;
+		rt::g_headPos.z += fwd.z * moveSpeed * deltaTime;
+	}
+	if (GetAsyncKeyState('S') & 0x8000) {
+		rt::g_headPos.x -= fwd.x * moveSpeed * deltaTime;
+		rt::g_headPos.y -= fwd.y * moveSpeed * deltaTime;
+		rt::g_headPos.z -= fwd.z * moveSpeed * deltaTime;
+	}
+	if (GetAsyncKeyState('A') & 0x8000) {
+		rt::g_headPos.x -= right.x * moveSpeed * deltaTime;
+		rt::g_headPos.y -= right.y * moveSpeed * deltaTime;
+		rt::g_headPos.z -= right.z * moveSpeed * deltaTime;
+	}
+	if (GetAsyncKeyState('D') & 0x8000) {
+		rt::g_headPos.x += right.x * moveSpeed * deltaTime;
+		rt::g_headPos.y += right.y * moveSpeed * deltaTime;
+		rt::g_headPos.z += right.z * moveSpeed * deltaTime;
+	}*/
+	if (GetAsyncKeyState('Q') & 0x8000) {
+		rt::g_headPos.y -= moveSpeed * deltaTime;
+	}
+	if (GetAsyncKeyState('E') & 0x8000) {
+		rt::g_headPos.y += moveSpeed * deltaTime;
+	}
+
+	// ========================================
+	// Automatic Controller Animation Mode
+	// ========================================
+	// Press 'M' to toggle automatic motion - controller moves in a pattern
+	static bool autoMotionEnabled = true;  // Start with auto motion ON for testing
+	static bool mKeyWasPressed = false;
+	static float animTime = 0.0f;
+
+	bool mKeyPressed = (GetAsyncKeyState('M') & 0x8000) != 0;
+	if (mKeyPressed && !mKeyWasPressed) {
+		autoMotionEnabled = !autoMotionEnabled;
+		Logf("[OXRWXR] Auto motion %s", autoMotionEnabled ? "ENABLED" : "DISABLED");
+	}
+	mKeyWasPressed = mKeyPressed;
+
+	if (autoMotionEnabled) {
+		animTime += deltaTime;
+
+		// Move controller in a figure-8 pattern around the camera
+		// X: side to side (left/right)
+		// Y: up and down
+		// Z: forward and back
+		float radius = 0.4f;  // 40cm radius of motion
+		float speed = 0.5f;   // Complete cycle every ~12 seconds
+
+		// Figure-8 pattern
+		rt::g_rightController.posOffset.x = radius * sinf(animTime * speed * 2.0f);
+		rt::g_rightController.posOffset.y = -0.2f + 0.3f * sinf(animTime * speed);  // Oscillate between -0.5 and +0.1
+		rt::g_rightController.posOffset.z = -0.4f + radius * sinf(animTime * speed) * cosf(animTime * speed);
+
+		// Also rotate the controller
+		rt::g_rightController.yawOffset = 0.5f * sinf(animTime * speed * 1.5f);
+		rt::g_rightController.pitchOffset = -0.3f + 0.3f * cosf(animTime * speed);
+	}
+
+	// Right controller manipulation (numpad keys) - only when auto motion is off
+	// Numpad 8/2: Move controller forward/back (in local space)
+	// Numpad 4/6: Move controller left/right (in local space)
+	// Numpad +/-: Move controller up/down
+	// Numpad 7/9: Rotate controller yaw
+	// Numpad 1/3: Rotate controller pitch
+	const float ctrlMoveSpeed = 0.5f * deltaTime;
+	const float ctrlRotSpeed = 1.0f * deltaTime;
+
+	if (!autoMotionEnabled) {
+		if (GetAsyncKeyState(VK_NUMPAD8) & 0x8000) {
+			rt::g_rightController.posOffset.z -= ctrlMoveSpeed;  // Forward
 		}
-		if (GetAsyncKeyState('S') & 0x8000) {
-			rt::g_headPos.x -= fwd.x * moveSpeed * deltaTime;
-			rt::g_headPos.y -= fwd.y * moveSpeed * deltaTime;
-			rt::g_headPos.z -= fwd.z * moveSpeed * deltaTime;
+		if (GetAsyncKeyState(VK_NUMPAD2) & 0x8000) {
+			rt::g_rightController.posOffset.z += ctrlMoveSpeed;  // Back
 		}
-		if (GetAsyncKeyState('A') & 0x8000) {
-			rt::g_headPos.x -= right.x * moveSpeed * deltaTime;
-			rt::g_headPos.y -= right.y * moveSpeed * deltaTime;
-			rt::g_headPos.z -= right.z * moveSpeed * deltaTime;
+		if (GetAsyncKeyState(VK_NUMPAD4) & 0x8000) {
+			rt::g_rightController.posOffset.x -= ctrlMoveSpeed;  // Left
 		}
-		if (GetAsyncKeyState('D') & 0x8000) {
-			rt::g_headPos.x += right.x * moveSpeed * deltaTime;
-			rt::g_headPos.y += right.y * moveSpeed * deltaTime;
-			rt::g_headPos.z += right.z * moveSpeed * deltaTime;
-		}*/
-		if (GetAsyncKeyState('Q') & 0x8000) {
-			rt::g_headPos.y -= moveSpeed * deltaTime;
+		if (GetAsyncKeyState(VK_NUMPAD6) & 0x8000) {
+			rt::g_rightController.posOffset.x += ctrlMoveSpeed;  // Right
 		}
-		if (GetAsyncKeyState('E') & 0x8000) {
-			rt::g_headPos.y += moveSpeed * deltaTime;
+		if (GetAsyncKeyState(VK_ADD) & 0x8000) {
+			rt::g_rightController.posOffset.y += ctrlMoveSpeed;  // Up
 		}
-
-		// ========================================
-		// Automatic Controller Animation Mode
-		// ========================================
-		// Press 'M' to toggle automatic motion - controller moves in a pattern
-		static bool autoMotionEnabled = true;  // Start with auto motion ON for testing
-		static bool mKeyWasPressed = false;
-		static float animTime = 0.0f;
-
-		bool mKeyPressed = (GetAsyncKeyState('M') & 0x8000) != 0;
-		if (mKeyPressed && !mKeyWasPressed) {
-			autoMotionEnabled = !autoMotionEnabled;
-			Logf("[OXRWXR] Auto motion %s", autoMotionEnabled ? "ENABLED" : "DISABLED");
+		if (GetAsyncKeyState(VK_SUBTRACT) & 0x8000) {
+			rt::g_rightController.posOffset.y -= ctrlMoveSpeed;  // Down
 		}
-		mKeyWasPressed = mKeyPressed;
-
-		if (autoMotionEnabled) {
-			animTime += deltaTime;
-
-			// Move controller in a figure-8 pattern around the camera
-			// X: side to side (left/right)
-			// Y: up and down
-			// Z: forward and back
-			float radius = 0.4f;  // 40cm radius of motion
-			float speed = 0.5f;   // Complete cycle every ~12 seconds
-
-			// Figure-8 pattern
-			rt::g_rightController.posOffset.x = radius * sinf(animTime * speed * 2.0f);
-			rt::g_rightController.posOffset.y = -0.2f + 0.3f * sinf(animTime * speed);  // Oscillate between -0.5 and +0.1
-			rt::g_rightController.posOffset.z = -0.4f + radius * sinf(animTime * speed) * cosf(animTime * speed);
-
-			// Also rotate the controller
-			rt::g_rightController.yawOffset = 0.5f * sinf(animTime * speed * 1.5f);
-			rt::g_rightController.pitchOffset = -0.3f + 0.3f * cosf(animTime * speed);
+		if (GetAsyncKeyState(VK_NUMPAD7) & 0x8000) {
+			rt::g_rightController.yawOffset -= ctrlRotSpeed;  // Rotate left
 		}
-
-		// Right controller manipulation (numpad keys) - only when auto motion is off
-		// Numpad 8/2: Move controller forward/back (in local space)
-		// Numpad 4/6: Move controller left/right (in local space)
-		// Numpad +/-: Move controller up/down
-		// Numpad 7/9: Rotate controller yaw
-		// Numpad 1/3: Rotate controller pitch
-		const float ctrlMoveSpeed = 0.5f * deltaTime;
-		const float ctrlRotSpeed = 1.0f * deltaTime;
-
-		if (!autoMotionEnabled) {
-			if (GetAsyncKeyState(VK_NUMPAD8) & 0x8000) {
-				rt::g_rightController.posOffset.z -= ctrlMoveSpeed;  // Forward
-			}
-			if (GetAsyncKeyState(VK_NUMPAD2) & 0x8000) {
-				rt::g_rightController.posOffset.z += ctrlMoveSpeed;  // Back
-			}
-			if (GetAsyncKeyState(VK_NUMPAD4) & 0x8000) {
-				rt::g_rightController.posOffset.x -= ctrlMoveSpeed;  // Left
-			}
-			if (GetAsyncKeyState(VK_NUMPAD6) & 0x8000) {
-				rt::g_rightController.posOffset.x += ctrlMoveSpeed;  // Right
-			}
-			if (GetAsyncKeyState(VK_ADD) & 0x8000) {
-				rt::g_rightController.posOffset.y += ctrlMoveSpeed;  // Up
-			}
-			if (GetAsyncKeyState(VK_SUBTRACT) & 0x8000) {
-				rt::g_rightController.posOffset.y -= ctrlMoveSpeed;  // Down
-			}
-			if (GetAsyncKeyState(VK_NUMPAD7) & 0x8000) {
-				rt::g_rightController.yawOffset -= ctrlRotSpeed;  // Rotate left
-			}
-			if (GetAsyncKeyState(VK_NUMPAD9) & 0x8000) {
-				rt::g_rightController.yawOffset += ctrlRotSpeed;  // Rotate right
-			}
-			if (GetAsyncKeyState(VK_NUMPAD1) & 0x8000) {
-				rt::g_rightController.pitchOffset += ctrlRotSpeed;  // Pitch down
-			}
-			if (GetAsyncKeyState(VK_NUMPAD3) & 0x8000) {
-				rt::g_rightController.pitchOffset -= ctrlRotSpeed;  // Pitch up
-			}
+		if (GetAsyncKeyState(VK_NUMPAD9) & 0x8000) {
+			rt::g_rightController.yawOffset += ctrlRotSpeed;  // Rotate right
 		}
-		// Numpad 5: Reset controller to default position
-		if (GetAsyncKeyState(VK_NUMPAD5) & 0x8000) {
-			rt::g_rightController.posOffset = { 0.2f, -0.3f, -0.4f };
-			rt::g_rightController.yawOffset = 0.0f;
-			rt::g_rightController.pitchOffset = -0.3f;
-			autoMotionEnabled = false;
+		if (GetAsyncKeyState(VK_NUMPAD1) & 0x8000) {
+			rt::g_rightController.pitchOffset += ctrlRotSpeed;  // Pitch down
 		}
-
-		// ========================================
-		// Controller Button/Trigger Emulation
-		// ========================================
-		// Right controller buttons (main hand for most games)
-		// Space = Trigger (fire weapon)
-		// F = Grip (grab)
-		// Tab = Menu
-		// R = Primary button (A)
-		// T = Secondary button (B)
-		// Enter = Thumbstick click
-		rt::g_rightController.triggerPressed = (GetAsyncKeyState(VK_SPACE) & 0x8000) != 0;
-		rt::g_rightController.triggerValue = rt::g_rightController.triggerPressed ? 1.0f : 0.0f;
-		rt::g_rightController.gripPressed = (GetAsyncKeyState('F') & 0x8000) != 0;
-		rt::g_rightController.gripValue = rt::g_rightController.gripPressed ? 1.0f : 0.0f;
-		rt::g_rightController.menuPressed = (GetAsyncKeyState(VK_TAB) & 0x8000) != 0;
-		rt::g_rightController.primaryPressed = (GetAsyncKeyState('R') & 0x8000) != 0;
-		rt::g_rightController.secondaryPressed = (GetAsyncKeyState('T') & 0x8000) != 0;
-		rt::g_rightController.thumbstickPressed = (GetAsyncKeyState(VK_RETURN) & 0x8000) != 0;
-
-		// Left controller buttons (off-hand)
-		// Left Ctrl = Trigger
-		// Left Alt = Grip
-		// G = Menu (left hand)
-		// V = Primary (X)
-		// B = Secondary (Y)
-		rt::g_leftController.triggerPressed = (GetAsyncKeyState(VK_LCONTROL) & 0x8000) != 0;
-		rt::g_leftController.triggerValue = rt::g_leftController.triggerPressed ? 1.0f : 0.0f;
-		rt::g_leftController.gripPressed = (GetAsyncKeyState(VK_LMENU) & 0x8000) != 0;
-		rt::g_leftController.gripValue = rt::g_leftController.gripPressed ? 1.0f : 0.0f;
-		rt::g_leftController.menuPressed = (GetAsyncKeyState('G') & 0x8000) != 0;
-		rt::g_leftController.primaryPressed = (GetAsyncKeyState('V') & 0x8000) != 0;
-		rt::g_leftController.secondaryPressed = (GetAsyncKeyState('B') & 0x8000) != 0;
-
-		// Right controller thumbstick (Arrow keys)
-		rt::g_rightController.thumbstick = { 0.0f, 0.0f };
-		if (GetAsyncKeyState(VK_UP) & 0x8000) rt::g_rightController.thumbstick.y = 1.0f;
-		if (GetAsyncKeyState(VK_DOWN) & 0x8000) rt::g_rightController.thumbstick.y = -1.0f;
-		if (GetAsyncKeyState(VK_LEFT) & 0x8000) rt::g_rightController.thumbstick.x = -1.0f;
-		if (GetAsyncKeyState(VK_RIGHT) & 0x8000) rt::g_rightController.thumbstick.x = 1.0f;
-
-		// Left controller thumbstick (IJKL keys)
-		rt::g_leftController.thumbstick = { 0.0f, 0.0f };
-		if (GetAsyncKeyState('I') & 0x8000) rt::g_leftController.thumbstick.y = 1.0f;
-		if (GetAsyncKeyState('K') & 0x8000) rt::g_leftController.thumbstick.y = -1.0f;
-		if (GetAsyncKeyState('J') & 0x8000) rt::g_leftController.thumbstick.x = -1.0f;
-		if (GetAsyncKeyState('L') & 0x8000) rt::g_leftController.thumbstick.x = 1.0f;
-
-		// ========================================
-		// Velocity Tracking for Motion Controls
-		// ========================================
-		// Calculate controller world positions
-		XrPosef rightPose, leftPose;
-		rt::GetControllerPose(rt::g_rightController, &rightPose);
-		rt::GetControllerPose(rt::g_leftController, &leftPose);
-
-		// Calculate linear velocity from position delta
-		if (deltaTime > 0.0f) {
-			// Right controller velocity
-			rt::g_rightController.linearVelocity.x = (rightPose.position.x - rt::g_rightController.prevPosWorld.x) / deltaTime;
-			rt::g_rightController.linearVelocity.y = (rightPose.position.y - rt::g_rightController.prevPosWorld.y) / deltaTime;
-			rt::g_rightController.linearVelocity.z = (rightPose.position.z - rt::g_rightController.prevPosWorld.z) / deltaTime;
-
-			// Left controller velocity
-			rt::g_leftController.linearVelocity.x = (leftPose.position.x - rt::g_leftController.prevPosWorld.x) / deltaTime;
-			rt::g_leftController.linearVelocity.y = (leftPose.position.y - rt::g_leftController.prevPosWorld.y) / deltaTime;
-			rt::g_leftController.linearVelocity.z = (leftPose.position.z - rt::g_leftController.prevPosWorld.z) / deltaTime;
-
-			// Angular velocity from yaw/pitch delta
-			float totalRightYaw = rt::g_headYaw + rt::g_rightController.yawOffset;
-			float totalRightPitch = rt::g_headPitch + rt::g_rightController.pitchOffset;
-			rt::g_rightController.angularVelocity.x = (totalRightPitch - rt::g_rightController.prevPitch) / deltaTime;
-			rt::g_rightController.angularVelocity.y = (totalRightYaw - rt::g_rightController.prevYaw) / deltaTime;
-			rt::g_rightController.angularVelocity.z = 0.0f;
-
-			float totalLeftYaw = rt::g_headYaw + rt::g_leftController.yawOffset;
-			float totalLeftPitch = rt::g_headPitch + rt::g_leftController.pitchOffset;
-			rt::g_leftController.angularVelocity.x = (totalLeftPitch - rt::g_leftController.prevPitch) / deltaTime;
-			rt::g_leftController.angularVelocity.y = (totalLeftYaw - rt::g_leftController.prevYaw) / deltaTime;
-			rt::g_leftController.angularVelocity.z = 0.0f;
-
-			// Update previous state for next frame
-			rt::g_rightController.prevPosWorld = rightPose.position;
-			rt::g_rightController.prevYaw = totalRightYaw;
-			rt::g_rightController.prevPitch = totalRightPitch;
-
-			rt::g_leftController.prevPosWorld = leftPose.position;
-			rt::g_leftController.prevYaw = totalLeftYaw;
-			rt::g_leftController.prevPitch = totalLeftPitch;
-		}
-
-		// Check for MCP head pose commands (for automated testing)
-		mcp::HeadPoseCommand cmd = mcp::CheckHeadPoseCommand();
-		if (cmd.valid) {
-			rt::g_headPos.x = cmd.x;
-			rt::g_headPos.y = cmd.y;
-			rt::g_headPos.z = cmd.z;
-			rt::g_headYaw = cmd.yaw;
-			rt::g_headPitch = cmd.pitch;
-			mcp::WriteCommandAck("head_pose", true);
+		if (GetAsyncKeyState(VK_NUMPAD3) & 0x8000) {
+			rt::g_rightController.pitchOffset -= ctrlRotSpeed;  // Pitch up
 		}
 	}
+	// Numpad 5: Reset controller to default position
+	if (GetAsyncKeyState(VK_NUMPAD5) & 0x8000) {
+		rt::g_rightController.posOffset = { 0.2f, -0.3f, -0.4f };
+		rt::g_rightController.yawOffset = 0.0f;
+		rt::g_rightController.pitchOffset = -0.3f;
+		autoMotionEnabled = false;
+	}
+
+	// ========================================
+	// Controller Button/Trigger Emulation
+	// ========================================
+	// Right controller buttons (main hand for most games)
+	// Space = Trigger (fire weapon)
+	// F = Grip (grab)
+	// Tab = Menu
+	// R = Primary button (A)
+	// T = Secondary button (B)
+	// Enter = Thumbstick click
+	rt::g_rightController.triggerPressed = (GetAsyncKeyState(VK_SPACE) & 0x8000) != 0;
+	rt::g_rightController.triggerValue = rt::g_rightController.triggerPressed ? 1.0f : 0.0f;
+	rt::g_rightController.gripPressed = (GetAsyncKeyState('F') & 0x8000) != 0;
+	rt::g_rightController.gripValue = rt::g_rightController.gripPressed ? 1.0f : 0.0f;
+	rt::g_rightController.menuPressed = (GetAsyncKeyState(VK_TAB) & 0x8000) != 0;
+	rt::g_rightController.primaryPressed = (GetAsyncKeyState('R') & 0x8000) != 0;
+	rt::g_rightController.secondaryPressed = (GetAsyncKeyState('T') & 0x8000) != 0;
+	rt::g_rightController.thumbstickPressed = (GetAsyncKeyState(VK_RETURN) & 0x8000) != 0;
+
+	// Left controller buttons (off-hand)
+	// Left Ctrl = Trigger
+	// Left Alt = Grip
+	// G = Menu (left hand)
+	// V = Primary (X)
+	// B = Secondary (Y)
+	rt::g_leftController.triggerPressed = (GetAsyncKeyState(VK_LCONTROL) & 0x8000) != 0;
+	rt::g_leftController.triggerValue = rt::g_leftController.triggerPressed ? 1.0f : 0.0f;
+	rt::g_leftController.gripPressed = (GetAsyncKeyState(VK_LMENU) & 0x8000) != 0;
+	rt::g_leftController.gripValue = rt::g_leftController.gripPressed ? 1.0f : 0.0f;
+	rt::g_leftController.menuPressed = (GetAsyncKeyState('G') & 0x8000) != 0;
+	rt::g_leftController.primaryPressed = (GetAsyncKeyState('V') & 0x8000) != 0;
+	rt::g_leftController.secondaryPressed = (GetAsyncKeyState('B') & 0x8000) != 0;
+
+	// Right controller thumbstick (Arrow keys)
+	rt::g_rightController.thumbstick = { 0.0f, 0.0f };
+	if (GetAsyncKeyState(VK_UP) & 0x8000) rt::g_rightController.thumbstick.y = 1.0f;
+	if (GetAsyncKeyState(VK_DOWN) & 0x8000) rt::g_rightController.thumbstick.y = -1.0f;
+	if (GetAsyncKeyState(VK_LEFT) & 0x8000) rt::g_rightController.thumbstick.x = -1.0f;
+	if (GetAsyncKeyState(VK_RIGHT) & 0x8000) rt::g_rightController.thumbstick.x = 1.0f;
+
+	// Left controller thumbstick (IJKL keys)
+	rt::g_leftController.thumbstick = { 0.0f, 0.0f };
+	if (GetAsyncKeyState('I') & 0x8000) rt::g_leftController.thumbstick.y = 1.0f;
+	if (GetAsyncKeyState('K') & 0x8000) rt::g_leftController.thumbstick.y = -1.0f;
+	if (GetAsyncKeyState('J') & 0x8000) rt::g_leftController.thumbstick.x = -1.0f;
+	if (GetAsyncKeyState('L') & 0x8000) rt::g_leftController.thumbstick.x = 1.0f;
+
+	// ========================================
+	// Velocity Tracking for Motion Controls
+	// ========================================
+	// Calculate controller world positions
+	XrPosef rightPose, leftPose;
+	rt::GetControllerPose(rt::g_rightController, &rightPose, true);
+	rt::GetControllerPose(rt::g_leftController, &leftPose, false);
+
+	// Calculate linear velocity from position delta
+	if (deltaTime > 0.0f) {
+		// Right controller velocity
+		rt::g_rightController.linearVelocity.x = (rightPose.position.x - rt::g_rightController.prevPosWorld.x) / deltaTime;
+		rt::g_rightController.linearVelocity.y = (rightPose.position.y - rt::g_rightController.prevPosWorld.y) / deltaTime;
+		rt::g_rightController.linearVelocity.z = (rightPose.position.z - rt::g_rightController.prevPosWorld.z) / deltaTime;
+
+		// Left controller velocity
+		rt::g_leftController.linearVelocity.x = (leftPose.position.x - rt::g_leftController.prevPosWorld.x) / deltaTime;
+		rt::g_leftController.linearVelocity.y = (leftPose.position.y - rt::g_leftController.prevPosWorld.y) / deltaTime;
+		rt::g_leftController.linearVelocity.z = (leftPose.position.z - rt::g_leftController.prevPosWorld.z) / deltaTime;
+
+		// Angular velocity from yaw/pitch delta
+		//float totalRightYaw = rt::g_headYaw + rt::g_rightController.yawOffset;
+		//float totalRightPitch = rt::g_headPitch + rt::g_rightController.pitchOffset;
+		rt::g_rightController.angularVelocity.x = (rt::g_rightController.pitchOffset - rt::g_rightController.prevPitch) / deltaTime;
+		rt::g_rightController.angularVelocity.y = (rt::g_rightController.yawOffset - rt::g_rightController.prevYaw) / deltaTime;
+		rt::g_rightController.angularVelocity.z = 0.0f;
+
+		//float totalLeftYaw = rt::g_headYaw + rt::g_leftController.yawOffset;
+		//float totalLeftPitch = rt::g_headPitch + rt::g_leftController.pitchOffset;
+		rt::g_leftController.angularVelocity.x = (rt::g_leftController.pitchOffset - rt::g_leftController.prevPitch) / deltaTime;
+		rt::g_leftController.angularVelocity.y = (rt::g_leftController.yawOffset - rt::g_leftController.prevYaw) / deltaTime;
+		rt::g_leftController.angularVelocity.z = 0.0f;
+
+		// Update previous state for next frame
+		rt::g_rightController.prevPosWorld = rightPose.position;
+		rt::g_rightController.prevYaw = rt::g_rightController.yawOffset;
+		rt::g_rightController.prevPitch = rt::g_rightController.pitchOffset;
+
+		rt::g_leftController.prevPosWorld = leftPose.position;
+		rt::g_leftController.prevYaw = rt::g_leftController.yawOffset;
+		rt::g_leftController.prevPitch = rt::g_leftController.pitchOffset;
+	}
+
+	// Check for MCP head pose commands (for automated testing)
+	/*mcp::HeadPoseCommand cmd = mcp::CheckHeadPoseCommand();
+	if (cmd.valid) {
+		rt::g_headPos.x = cmd.x;
+		rt::g_headPos.y = cmd.y;
+		rt::g_headPos.z = cmd.z;
+		rt::g_headYaw = cmd.yaw;
+		rt::g_headPitch = cmd.pitch;
+		mcp::WriteCommandAck("head_pose", true);
+	}*/
+	//}
 
 	for (;;) {
 		LARGE_INTEGER now; QueryPerformanceCounter(&now);
@@ -3099,7 +3067,7 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
 	//---------------- 
 	// Red sync for (DX11)
 	//XRTODO PULL THIS VALUE FROM OXR FRAME ID
-	int redIntensity = 255;
+	int redIntensity = OpenXRFrameID;
 
 	if (!rtv) {
 		Log("[OXRWXR] blitViewToHalf: rtv is null!");
@@ -3298,13 +3266,13 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
 			for (int i = 0; i < 10 * 10; i++) {
 				data[i * 4 + 0] = 0; // B
 				data[i * 4 + 1] = 0;   // G
-				data[i * 4 + 2] = redIntensity;   // R
+				data[i * 4 + 2] = OpenXRFrameID;   // R
 				data[i * 4 + 3] = 255; // A
 			}
 		}
 		else {
 			for (int i = 0; i < 10 * 10; i++) {
-				data[i * 4 + 0] = redIntensity; // R
+				data[i * 4 + 0] = OpenXRFrameID; // R
 				data[i * 4 + 1] = 0;   // G
 				data[i * 4 + 2] = 0;   // B
 				data[i * 4 + 3] = 255; // A
@@ -3461,7 +3429,7 @@ static void blitD3D12ToPreview(rt::Session& s,
 			//---------------- 
 			// Now with red sync for (DX12)
 			//XRTODO: Pull this from OpenXR Frame ID, and adjust so it is on a 1.0 scale instead (value / 255.0f?)
-			float redIntensity = 1.0f;
+			float redIntensity = (OpenXRFrameID / 255.0f);
 
 			if (idx >= chain.images12.size() || !chain.images12[idx]) return false;
 			if (chain.imageStates12.size() <= idx) {
@@ -3691,34 +3659,34 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
 			if (rightTex != 0) flipImageVertically(rightPixels, width, height);
 
 			// MCP Integration - check for screenshot requests and capture (OpenGL path)
-			mcp::CheckScreenshotRequest();
-			if (mcp::g_screenshotRequested) {
-				if (mcp::g_screenshotLayer == "quad") {
-					// Capture only quad layer
-					mcp::CaptureQuadScreenshot();
-				}
-				else if (mcp::g_screenshotLayer == "all") {
-					// Capture both projection and quad layers
-					mcp::CaptureScreenshotGL(
-						leftTex != 0 ? leftPixels.data() : nullptr,
-						rightTex != 0 ? rightPixels.data() : nullptr,
-						width, height);
-					// Also capture quad layer separately
-					if (mcp::g_quadLayerCaptured) {
-						std::string quadPath = mcp::GetSimulatorDataPath() + "\\screenshot_quad.bmp";
-						mcp::SavePixelsToBMP(mcp::g_quadLayerPixels.data(),
-							mcp::g_quadLayerWidth, mcp::g_quadLayerHeight, quadPath.c_str());
-					}
-					mcp::g_screenshotRequested = false;
-				}
-				else {
-					// Default: capture projection layer
-					mcp::CaptureScreenshotGL(
-						leftTex != 0 ? leftPixels.data() : nullptr,
-						rightTex != 0 ? rightPixels.data() : nullptr,
-						width, height);
-				}
-			}
+			//mcp::CheckScreenshotRequest();
+			//if (mcp::g_screenshotRequested) {
+			//	if (mcp::g_screenshotLayer == "quad") {
+			//		// Capture only quad layer
+			//		mcp::CaptureQuadScreenshot();
+			//	}
+			//	else if (mcp::g_screenshotLayer == "all") {
+			//		// Capture both projection and quad layers
+			//		mcp::CaptureScreenshotGL(
+			//			leftTex != 0 ? leftPixels.data() : nullptr,
+			//			rightTex != 0 ? rightPixels.data() : nullptr,
+			//			width, height);
+			//		// Also capture quad layer separately
+			//		if (mcp::g_quadLayerCaptured) {
+			//			std::string quadPath = mcp::GetSimulatorDataPath() + "\\screenshot_quad.bmp";
+			//			mcp::SavePixelsToBMP(mcp::g_quadLayerPixels.data(),
+			//				mcp::g_quadLayerWidth, mcp::g_quadLayerHeight, quadPath.c_str());
+			//		}
+			//		mcp::g_screenshotRequested = false;
+			//	}
+			//	else {
+			//		// Default: capture projection layer
+			//		mcp::CaptureScreenshotGL(
+			//			leftTex != 0 ? leftPixels.data() : nullptr,
+			//			rightTex != 0 ? rightPixels.data() : nullptr,
+			//			width, height);
+			//	}
+			//}
 
 			// Restore original GL context
 			if (savedRC) {
@@ -4057,7 +4025,7 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
 			vpOXR.MaxDepth = 1;
 
 			//XRTODO: Pass OpenXR Frame ID sync
-			blitRedQuad(vpOXR);//, redIntensity);
+			blitRedQuad(vpOXR, OpenXRFrameID);
 
 			// Update window title with FPS
 			static int glTitleFrameCount = 0;
@@ -4245,10 +4213,10 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
 			}
 
 			// MCP Integration - check for screenshot requests and capture
-			mcp::CheckScreenshotRequest();
+			/*mcp::CheckScreenshotRequest();
 			if (mcp::g_screenshotRequested) {
 				mcp::CaptureScreenshot(s.d3d11Device.Get(), s.d3d11Context.Get(), s.previewSwapchain.Get());
-			}
+			}*/
 
 		}
 		else {
@@ -4424,7 +4392,7 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
 		}
 
 		// Store quad layer pixels for MCP screenshot capture
-		mcp::StoreQuadLayerPixels(pixels.data(), texWidth, texHeight);
+		//mcp::StoreQuadLayerPixels(pixels.data(), texWidth, texHeight);
 
 		// Restore GL context
 		if (savedRC) wglMakeCurrent(savedDC, savedRC);
@@ -4668,11 +4636,11 @@ static XrResult XRAPI_PTR xrEndFrame_runtime(XrSession, const XrFrameEndInfo* in
 		Log("[OXRWXR] xrEndFrame: WARNING - No projection layers found!");
 	}
 
-	// MCP Integration - write frame status for diagnostics
-	mcp::WriteFrameStatus(frameCount, rt::g_session.previewWidth, rt::g_session.previewHeight,
-		"RGBA8", mcp::GetSessionStateName((int)rt::g_session.state),
-		rt::g_headYaw, rt::g_headPitch,
-		rt::g_headPos.x, rt::g_headPos.y, rt::g_headPos.z);
+	//// MCP Integration - write frame status for diagnostics
+	//mcp::WriteFrameStatus(frameCount, rt::g_session.previewWidth, rt::g_session.previewHeight,
+	//	"RGBA8", mcp::GetSessionStateName((int)rt::g_session.state),
+	//	rt::g_headYaw, rt::g_headPitch,
+	//	rt::g_headPos.x, rt::g_headPos.y, rt::g_headPos.z);
 
 	return XR_SUCCESS;
 }
@@ -4690,8 +4658,11 @@ static XrResult XRAPI_PTR xrLocateViews_runtime(XrSession, const XrViewLocateInf
 	if (cap < 2 || !views) return XR_SUCCESS;
 	const float ipd = 0.064f;
 
-	// Use dynamic head pose from mouse look
-	XrQuaternionf orientation = rt::QuatFromYawPitchRoll(rt::g_headYaw, rt::g_headPitch, rt::g_headRoll);
+	//----------------
+	//OXRWXR CHANGE:
+	//---------------- 
+	//Now we have the real quat
+	XrQuaternionf orientation = { HMDQuat.x, HMDQuat.y, HMDQuat.z, HMDQuat.w }; //rt::QuatFromYawPitchRoll(rt::g_headYaw, rt::g_headPitch, rt::g_headRoll);
 
 	// Helper function to rotate a vector by a quaternion
 	auto rotateVector = [](XrQuaternionf q, XrVector3f v) -> XrVector3f {
@@ -4722,6 +4693,7 @@ static XrResult XRAPI_PTR xrLocateViews_runtime(XrSession, const XrViewLocateInf
 		views[i].type = XR_TYPE_VIEW;
 		views[i].pose.orientation = orientation;
 
+		//XRTODO: IPD here
 		// Apply IPD offset in full head orientation space (yaw+pitch)
 		// This fixes stereo geometry and eliminates warping when pitching
 		float eyeOffset = (i == 0 ? -ipd * 0.5f : ipd * 0.5f);
@@ -4781,7 +4753,7 @@ static XrResult XRAPI_PTR xrLocateSpace_runtime(XrSpace space, XrSpace baseSpace
 				XR_SPACE_LOCATION_ORIENTATION_VALID_BIT |
 				XR_SPACE_LOCATION_POSITION_TRACKED_BIT |
 				XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT;
-			rt::GetControllerPose(ctrl, &location->pose);
+			rt::GetControllerPose(ctrl, &location->pose, (ctrlType != 1));
 
 			// Handle velocity if chained (XrSpaceVelocity)
 			XrSpaceVelocity* velocity = (XrSpaceVelocity*)location->next;
