@@ -2604,6 +2604,9 @@ static XrResult XRAPI_PTR xrWaitFrame_runtime(XrSession, const XrFrameWaitInfo*,
 
 	//PICO and Quest 2 are both tested to need the hand orientation flipped, assume the same for Quest Pro for now
 	if (hmdMake == "PICO" || hmdModel == "QUEST 2" || hmdMake == "PLAY FOR DREAM" || hmdMake == "FORCE FIX HANDS") {
+		XrVector4f flip = { 0.0f, 0.0f, 1.0f, 0.0f }; // 180° rotation around X-axis
+		LHandQuat = QuaternionMultiply(flip, LHandQuat);
+		RHandQuat = QuaternionMultiply(flip, RHandQuat); 
 		UpsideDownHandsFix = true;
 	}
 	else {
@@ -2945,7 +2948,6 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
 	//OXRWXR CHANGE:
 	//---------------- 
 	// Red sync for (DX11)
-	//XRTODO PULL THIS VALUE FROM OXR FRAME ID
 	int redIntensity = OpenXRFrameID;
 
 	if (!rtv) {
@@ -3307,7 +3309,6 @@ static void blitD3D12ToPreview(rt::Session& s,
 			//OXRWXR CHANGE:
 			//---------------- 
 			// Now with red sync for (DX12)
-			//XRTODO: Pull this from OpenXR Frame ID, and adjust so it is on a 1.0 scale instead (value / 255.0f?)
 			float redIntensity = (OpenXRFrameID / 255.0f);
 
 			if (idx >= chain.images12.size() || !chain.images12[idx]) return false;
@@ -3903,7 +3904,6 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
 			vpOXR.MinDepth = 0;
 			vpOXR.MaxDepth = 1;
 
-			//XRTODO: Pass OpenXR Frame ID sync
 			blitRedQuad(vpOXR, OpenXRFrameID);
 
 			// Update window title with FPS
