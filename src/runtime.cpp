@@ -861,14 +861,24 @@ namespace rt {
 				}
 			}
 			else {
-				rt::g_session.isFocused = false;
-				if (verboseLogging) Log("[OXRWXR] WndProc: WM_ACTIVATE -> unfocused");
-				rt::g_mouseCapture = false;  // Release mouse capture when window loses focus
-				ReleaseCapture();
-				// Push VISIBLE state if we were FOCUSED
-				if (rt::g_session.state == XR_SESSION_STATE_FOCUSED) {
-					rt::PushState(rt::g_session.handle, XR_SESSION_STATE_VISIBLE);
+				//----------------
+				//OXRWXR CHANGE:
+				//---------------- 
+				// Always has focus
+				rt::g_session.isFocused = true;
+				if (verboseLogging) Log("[OXRWXR] WndProc: WM_ACTIVATE -> focused");
+				// Push FOCUSED state if we were VISIBLE
+				if (rt::g_session.state == XR_SESSION_STATE_VISIBLE) {
+					rt::PushState(rt::g_session.handle, XR_SESSION_STATE_FOCUSED);
 				}
+				//rt::g_session.isFocused = false;
+				//if (verboseLogging) Log("[OXRWXR] WndProc: WM_ACTIVATE -> unfocused");
+				//rt::g_mouseCapture = false;  // Release mouse capture when window loses focus
+				//ReleaseCapture();
+				//// Push VISIBLE state if we were FOCUSED
+				//if (rt::g_session.state == XR_SESSION_STATE_FOCUSED) {
+				//	rt::PushState(rt::g_session.handle, XR_SESSION_STATE_VISIBLE);
+				//}
 			}
 			return 0;
 		case WM_LBUTTONDOWN:
@@ -961,15 +971,21 @@ namespace rt {
 			ShowWindow(s.hwnd, SW_SHOW);
 			UpdateWindow(s.hwnd);
 
-			// Check if window has focus
-			if (GetForegroundWindow() == s.hwnd) {
-				s.isFocused = true;
-				Log("[OXRWXR] Window created with focus");
-			}
-			else {
-				s.isFocused = false;
-				Log("[OXRWXR] Window created without focus");
-			}
+			//----------------
+			//OXRWXR CHANGE:
+			//---------------- 
+			// Always assume focus
+			s.isFocused = true;
+
+			//// Check if window has focus
+			//if (GetForegroundWindow() == s.hwnd) {
+			//	s.isFocused = true;
+			//	Log("[OXRWXR] Window created with focus");
+			//}
+			//else {
+			//	s.isFocused = false;
+			//	Log("[OXRWXR] Window created without focus");
+			//}
 		}
 
 		// Swapchain creation is now handled in ensurePreviewSized for both D3D11 and D3D12
@@ -1372,6 +1388,8 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
 		hmdMake = "FORCE FIX HANDS";
 	}
 
+	bEnableAltEyeRendering = false;
+	bAltEyeRender = false;
 	aerMode = "1"; //3D SBS (0 for monocular VR, 2 for AER)
 
 	//Load the config for the OXRWXR runtime
@@ -1386,6 +1404,7 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
 				while (std::getline(confFileOpen, line)) {
 					if (compareKey(line, "display_mode")) {
 						if (compareValue(line, "both_eyes") && ui::g_uiState.viewMode != ui::ViewMode::BothEyes) {
+							aerMode = "1";
 							ui::g_uiState.viewMode = ui::ViewMode::BothEyes;
 						}
 						else if (compareValue(line, "left_eye") && ui::g_uiState.viewMode != ui::ViewMode::LeftEyeOnly) {
@@ -1410,7 +1429,7 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
 				}
 
 				if (tryAER) {
-					//We will enable AER mode
+					//We will enable AER mode regardless of display_mode
 					ui::g_uiState.viewMode = ui::ViewMode::LeftEyeOnly;
 					bEnableAltEyeRendering = true;
 					bAltEyeRender = false;
@@ -1430,12 +1449,6 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
 
 	Logf("[WinXrUDP] Starting UDP");
 	udpReader = new WinXrApiUDP();
-
-	// AER is not likely necessary for non-VR apps, they can use SBS via reshade most often
-	/*if (bEnableAltEyeRendering)
-	{
-		aerMode = "2";
-	}*/
 
 	float targetFOVH = 104.5;
 	float targetFOVW = 104.5;
@@ -3469,6 +3482,8 @@ static void blitD3D12ToPreview(rt::Session& s,
 static bool g_presentPending = false;
 
 static void presentProjection(rt::Session& s, const XrCompositionLayerProjection& proj, bool skipPresent = false) {
+	ShowCursor(FALSE);
+	
 	if (verboseLogging) Log("[OXRWXR] ============================================");
 	if (verboseLogging) Logf("[OXRWXR] presentProjection called: viewCount=%u, skipPresent=%d", proj.viewCount, (int)skipPresent);
 	if (verboseLogging) Log("[OXRWXR] RENDERING FRAME TO PREVIEW WINDOW");
