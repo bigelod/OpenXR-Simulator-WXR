@@ -41,6 +41,7 @@
 #include <thread>
 #include <vector>
 #include <ws2tcpip.h>
+#include <algorithm>
 // New defines
 #define D3DX12_COLOR_F(r, g, b, a) { (FLOAT)(r), (FLOAT)(g), (FLOAT)(b), (FLOAT)(a) }
 #define D3D11_COLOR_ARGB(a, r, g, b) ((UINT)(((a) << 24) | ((r) << 16) | ((g) << 8) | (b)))
@@ -164,9 +165,9 @@ static void EnsureLogFile() {
 	else {
 		snprintf(path, sizeof(path), ".\\openxr_wxr.log");
 	}
-	fopen_s(&g_LogFile, path, "a");
+	fopen_s(&g_LogFile, path, "w");
 }
-static void Log(const char* msg) {
+static void Log(const char* msg) {	
 	OutputDebugStringA(msg);
 	EnsureLogFile();
 	if (g_LogFile) { fputs(msg, g_LogFile); if (msg[0] && msg[strlen(msg) - 1] != '\n') fputc('\n', g_LogFile); fflush(g_LogFile); }
@@ -279,12 +280,12 @@ static DXGI_FORMAT ToTypeless(DXGI_FORMAT format) {
 	}
 }
 
-
-
 //----------------
 //OXRWXR CHANGE:
 //---------------- 
 // Create global variables
+static bool verboseLogging = false;
+
 static WinXrApiUDP* udpReader;
 
 static std::string hmdMake;
@@ -366,6 +367,37 @@ static XrVector4f QuaternionMultiply(const XrVector4f& q1, const XrVector4f& q2)
 		q1.w * q2.y - q1.x * q2.z + q1.y * q2.w + q1.z * q2.x,
 		q1.w * q2.z + q1.x * q2.y - q1.y * q2.x + q1.z * q2.w,
 		q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z };
+}
+
+static bool parseBool(const std::string& str) {
+	size_t pos = str.find('=');
+	if (pos == std::string::npos) return false;
+
+	std::string value = str.substr(pos + 1);
+	std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return std::tolower(c); });
+	return value == "true" || value == "1" || value == "yes" || value == "t";
+}
+
+static bool compareValue(const std::string& str, const std::string& compareTo) {
+	size_t pos = str.find('=');
+	if (pos == std::string::npos) return false;
+
+	std::string value = str.substr(pos + 1);
+	std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return std::tolower(c); });
+	std::string compareToLower = compareTo;
+	std::transform(compareToLower.begin(), compareToLower.end(), compareToLower.begin(), [](unsigned char c) { return std::tolower(c); });
+	return value == compareToLower;
+}
+
+static bool compareKey(const std::string& str, const std::string& compareTo) {
+	size_t pos = str.find('=');
+	if (pos == std::string::npos) return false;
+
+	std::string key = str.substr(0, pos);
+	std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) { return std::tolower(c); });
+	std::string compareToLower = compareTo;
+	std::transform(compareToLower.begin(), compareToLower.end(), compareToLower.begin(), [](unsigned char c) { return std::tolower(c); });
+	return key == compareToLower;
 }
 
 // Runtime state
@@ -788,7 +820,7 @@ namespace rt {
 		hr = s.d3d11Device->CreateBlendState(&blendDesc, s.anaglyphCyanBS.GetAddressOf());
 		if (FAILED(hr)) { Logf("[OXRWXR] Failed to create anaglyph cyan blend state: 0x%08X", hr); return false; }
 
-		Log("[OXRWXR] Blit resources initialized successfully.");
+		if (verboseLogging) Log("[OXRWXR] Blit resources initialized successfully.");
 		return true;
 	}
 
@@ -825,7 +857,7 @@ namespace rt {
 		case WM_ACTIVATE:
 			if (LOWORD(wParam) != WA_INACTIVE) {
 				rt::g_session.isFocused = true;
-				Log("[OXRWXR] WndProc: WM_ACTIVATE -> focused");
+				if (verboseLogging) Log("[OXRWXR] WndProc: WM_ACTIVATE -> focused");
 				// Push FOCUSED state if we were VISIBLE
 				if (rt::g_session.state == XR_SESSION_STATE_VISIBLE) {
 					rt::PushState(rt::g_session.handle, XR_SESSION_STATE_FOCUSED);
@@ -833,7 +865,7 @@ namespace rt {
 			}
 			else {
 				rt::g_session.isFocused = false;
-				Log("[OXRWXR] WndProc: WM_ACTIVATE -> unfocused");
+				if (verboseLogging) Log("[OXRWXR] WndProc: WM_ACTIVATE -> unfocused");
 				rt::g_mouseCapture = false;  // Release mouse capture when window loses focus
 				ReleaseCapture();
 				// Push VISIBLE state if we were FOCUSED
@@ -843,7 +875,7 @@ namespace rt {
 			}
 			return 0;
 		case WM_LBUTTONDOWN:
-			Logf("[OXRWXR] WM_LBUTTONDOWN: focused=%d", rt::g_session.isFocused.load());
+			if (verboseLogging) Logf("[OXRWXR] WM_LBUTTONDOWN: focused=%d", rt::g_session.isFocused.load());
 			if (rt::g_session.isFocused) {
 				/*rt::g_mouseCapture = true;
 				SetCapture(hWnd);
@@ -2177,7 +2209,7 @@ static XrResult XRAPI_PTR xrReleaseSwapchainImage_runtime(XrSwapchain sc, const 
 	static int releaseCount = 0;
 	bool shouldLog = (++releaseCount <= 10);
 	if (shouldLog || releaseCount % 60 == 1) {
-		Logf("[OXRWXR] xrReleaseSwapchainImage: sc=%p released=%u", sc, ch.lastReleased);
+		if (verboseLogging) Logf("[OXRWXR] xrReleaseSwapchainImage: sc=%p released=%u", sc, ch.lastReleased);
 
 		// DEBUG: Read texture content at release time to verify it has content
 		if (ch.backend == rt::Swapchain::Backend::OpenGL && !ch.imagesGL.empty() && ch.lastReleased < ch.imagesGL.size()) {
@@ -2389,7 +2421,7 @@ namespace rt {
 		case XR_SESSION_STATE_LOSS_PENDING: stateName = "LOSS_PENDING"; break;
 		case XR_SESSION_STATE_EXITING: stateName = "EXITING"; break;
 		}
-		Logf("[OXRWXR] PushState: Session %llu -> %s", (unsigned long long)s, stateName);
+		if (verboseLogging) Logf("[OXRWXR] PushState: Session %llu -> %s", (unsigned long long)s, stateName);
 
 		XrEventDataSessionStateChanged e{ XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED };
 		e.session = s; e.state = ns; e.time = 0;
@@ -2398,7 +2430,7 @@ namespace rt {
 		buf.type = XR_TYPE_EVENT_DATA_BUFFER;  // Set the base type
 		std::memcpy(&buf, &e, sizeof(e));
 		g_eventQueue.push_back(buf);
-		Logf("[OXRWXR] Event queue now has %zu events", g_eventQueue.size());
+		if (verboseLogging) Logf("[OXRWXR] Event queue now has %zu events", g_eventQueue.size());
 	}
 }
 static XrResult XRAPI_PTR xrPollEvent_runtime(XrInstance, XrEventDataBuffer* b) {
@@ -2406,7 +2438,7 @@ static XrResult XRAPI_PTR xrPollEvent_runtime(XrInstance, XrEventDataBuffer* b) 
 	pollCount++;
 
 	if (pollCount <= 5) {  // Log first few polls
-		Logf("[OXRWXR] xrPollEvent called (#%d), queue size=%zu", pollCount, rt::g_eventQueue.size());
+		if (verboseLogging) Logf("[OXRWXR] xrPollEvent called (#%d), queue size=%zu", pollCount, rt::g_eventQueue.size());
 	}
 
 	if (!b) return XR_ERROR_VALIDATION_FAILURE;
@@ -2434,11 +2466,11 @@ static XrResult XRAPI_PTR xrPollEvent_runtime(XrInstance, XrEventDataBuffer* b) 
 		case XR_SESSION_STATE_LOSS_PENDING: stateName = "LOSS_PENDING"; break;
 		case XR_SESSION_STATE_EXITING: stateName = "EXITING"; break;
 		}
-		Logf("[OXRWXR] xrPollEvent: Delivering SESSION_STATE_CHANGED -> %s (session=%llu, %zu events left)",
+		if (verboseLogging) Logf("[OXRWXR] xrPollEvent: Delivering SESSION_STATE_CHANGED -> %s (session=%llu, %zu events left)",
 			stateName, (unsigned long long)stateEvent->session, rt::g_eventQueue.size());
 	}
 	else {
-		Logf("[OXRWXR] xrPollEvent: Delivering event type %d (%zu events left)", header->type, rt::g_eventQueue.size());
+		if (verboseLogging) Logf("[OXRWXR] xrPollEvent: Delivering event type %d (%zu events left)", header->type, rt::g_eventQueue.size());
 	}
 	return XR_SUCCESS;
 }
@@ -2930,7 +2962,7 @@ static void ensurePreviewSized(rt::Session& s, UINT width, UINT height, DXGI_FOR
 			UpdateWindow(s.hwnd);
 			SetForegroundWindow(s.hwnd);
 			SetWindowPos(s.hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-			Logf("[OXRWXR] Created new preview window: hwnd=%p size=%ux%u", s.hwnd, width, height);
+			if (verboseLogging) Logf("[OXRWXR] Created new preview window: hwnd=%p size=%ux%u", s.hwnd, width, height);
 
 			// Apply dark theme and menu
 			ui::ApplyDarkTheme(s.hwnd);
@@ -2975,7 +3007,7 @@ static void ensurePreviewSized(rt::Session& s, UINT width, UINT height, DXGI_FOR
 			{
 				std::lock_guard<std::mutex> lock(rt::g_windowMutex);
 				rt::g_persistentWindow = s.hwnd;
-				Log("[OXRWXR] Saved new window to persistent storage");
+				if (verboseLogging) Log("[OXRWXR] Saved new window to persistent storage");
 			}
 		}
 	}
@@ -2999,7 +3031,7 @@ static void ensurePreviewSized(rt::Session& s, UINT width, UINT height, DXGI_FOR
 		desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 		desc.SampleDesc.Count = 1;
 		HRESULT hr = factory->CreateSwapChainForHwnd(s.d3d11Device.Get(), s.hwnd, &desc, nullptr, nullptr, s.previewSwapchain.GetAddressOf());
-		Logf("[OXRWXR] ensurePreviewSized(DX11): hr=0x%08X swapchain=%p format=%d", (unsigned)hr, s.previewSwapchain.Get(), format);
+		if (verboseLogging) Logf("[OXRWXR] ensurePreviewSized(DX11): hr=0x%08X swapchain=%p format=%d", (unsigned)hr, s.previewSwapchain.Get(), format);
 		if (FAILED(hr)) {
 			Logf("[OXRWXR] ERROR: Failed to create DX11 preview swapchain with format %d", format);
 		}
@@ -3107,7 +3139,7 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
 		// Depth swapchains are for depth testing, not preview rendering
 		static int depthSkipCount = 0;
 		if (++depthSkipCount % 60 == 1) {
-			Logf("[OXRWXR] blitViewToHalf: Skipping depth format %d", srcDesc.Format);
+			if (verboseLogging) Logf("[OXRWXR] blitViewToHalf: Skipping depth format %d", srcDesc.Format);
 		}
 		return;
 	}
@@ -3327,10 +3359,10 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
 
 	static int debugCount = 0;
 	if (++debugCount % 120 == 1) {
-		Logf("[OXRWXR] blitViewToHalf: srcIdx=%u slice=%u typedFmt=%d srcFmt=%d",
+		if (verboseLogging) Logf("[OXRWXR] blitViewToHalf: srcIdx=%u slice=%u typedFmt=%d srcFmt=%d",
 			srcIndex, arraySlice, typedFormat, srcDesc.Format);
-		Logf("[OXRWXR]   viewport: x=%.0f y=%.0f w=%.0f h=%.0f", vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height);
-		Logf("[OXRWXR]   srcSize: %ux%u, tempSize: %ux%u", srcDesc.Width, srcDesc.Height, tempDesc.Width, tempDesc.Height);
+		if (verboseLogging) Logf("[OXRWXR]   viewport: x=%.0f y=%.0f w=%.0f h=%.0f", vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height);
+		if (verboseLogging) Logf("[OXRWXR]   srcSize: %ux%u, tempSize: %ux%u", srcDesc.Width, srcDesc.Height, tempDesc.Width, tempDesc.Height);
 	}
 }
 
@@ -3548,10 +3580,10 @@ static void blitD3D12ToPreview(rt::Session& s,
 static bool g_presentPending = false;
 
 static void presentProjection(rt::Session& s, const XrCompositionLayerProjection& proj, bool skipPresent = false) {
-	Log("[OXRWXR] ============================================");
-	Logf("[OXRWXR] presentProjection called: viewCount=%u, skipPresent=%d", proj.viewCount, (int)skipPresent);
-	Log("[OXRWXR] RENDERING FRAME TO PREVIEW WINDOW");
-	Log("[OXRWXR] ============================================");
+	if (verboseLogging) Log("[OXRWXR] ============================================");
+	if (verboseLogging) Logf("[OXRWXR] presentProjection called: viewCount=%u, skipPresent=%d", proj.viewCount, (int)skipPresent);
+	if (verboseLogging) Log("[OXRWXR] RENDERING FRAME TO PREVIEW WINDOW");
+	if (verboseLogging) Log("[OXRWXR] ============================================");
 	if (proj.viewCount < 1) {
 		Log("[OXRWXR] presentProjection: No views, returning");
 		return;
@@ -3761,7 +3793,7 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
 			ui::CalculateWindowSize((int)width, (int)height, targetWidth, targetHeight);
 
 			if (glFrameCount % 60 == 1) {
-				Logf("[OXRWXR] GL PREVIEW: targetSize=%dx%d, calling ensurePreviewSized", targetWidth, targetHeight);
+				if (verboseLogging) Logf("[OXRWXR] GL PREVIEW: targetSize=%dx%d, calling ensurePreviewSized", targetWidth, targetHeight);
 			}
 
 			ensurePreviewSized(s, (UINT)targetWidth, (UINT)targetHeight, displayFormat);
@@ -4086,7 +4118,7 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
 
 		static int blitCount = 0;
 		if (++blitCount % 60 == 1) {  // Log every 60 frames
-			Logf("[OXRWXR] Blitting left eye: idx=%u (lastReleased=%u, lastAcquired=%u, imageCount=%u)",
+			if (verboseLogging) Logf("[OXRWXR] Blitting left eye: idx=%u (lastReleased=%u, lastAcquired=%u, imageCount=%u)",
 				leftIdx, chL.lastReleased, chL.lastAcquired, chL.imageCount);
 		}
 
@@ -4551,7 +4583,7 @@ static XrResult XRAPI_PTR xrEndFrame_runtime(XrSession, const XrFrameEndInfo* in
 	bool shouldLog = (frameCount <= 10) || (frameCount % 60 == 1);
 
 	if (shouldLog) {
-		Logf("[OXRWXR] xrEndFrame called (frame #%d)", frameCount);
+		if (verboseLogging) Logf("[OXRWXR] xrEndFrame called (frame #%d)", frameCount);
 	}
 
 	if (!info) {
@@ -4560,7 +4592,7 @@ static XrResult XRAPI_PTR xrEndFrame_runtime(XrSession, const XrFrameEndInfo* in
 	}
 
 	if (shouldLog) {
-		Logf("[OXRWXR] xrEndFrame: layers=%u", info->layerCount);
+		if (verboseLogging) Logf("[OXRWXR] xrEndFrame: layers=%u", info->layerCount);
 	}
 
 	// First pass: count layer types to know if we need to defer Present
