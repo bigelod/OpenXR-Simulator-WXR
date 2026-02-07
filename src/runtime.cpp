@@ -1385,10 +1385,14 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
 							ui::g_uiState.viewMode = ui::ViewMode::RightEyeOnly;
 						}
 					}
-				}
 
-				//XRTODO:
-				//Maybe support a config flag like depth_mode=stereo (or mono, or AER)
+					if (compareKey(line, "verbose_logging")) {
+						verboseLogging = parseBool(line);
+					}
+
+					//XRTODO:
+					//Maybe support a config flag like depth_mode=stereo (or mono, or AER)
+				}
 
 				confFileOpen.close();
 			}
@@ -2135,7 +2139,7 @@ static XrResult XRAPI_PTR xrEnumerateSwapchainImages_runtime(XrSwapchain sc, uin
 			auto* arr = reinterpret_cast<XrSwapchainImageD3D12KHR*>(images);
 			for (uint32_t i = 0; i < n; ++i) { arr[i].type = XR_TYPE_SWAPCHAIN_IMAGE_D3D12_KHR; arr[i].texture = it->second.images12[i].Get(); }
 		}
-		Logf("[OXRWXR] xrEnumerateSwapchainImages(D3D12): sc=%p count=%u", sc, n);
+		if (verboseLogging) Logf("[OXRWXR] xrEnumerateSwapchainImages(D3D12): sc=%p count=%u", sc, n);
 		return XR_SUCCESS;
 	}
 	else if (it->second.backend == rt::Swapchain::Backend::OpenGL) {
