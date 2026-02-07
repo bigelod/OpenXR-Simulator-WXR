@@ -288,6 +288,9 @@ static bool verboseLogging = false;
 static std::string aerMode;
 static bool sendHaptics = true;
 
+static bool bEnableAltEyeRendering = false;
+static bool bAltEyeRender = false;
+
 static WinXrApiUDP* udpReader;
 
 static std::string hmdMake;
@@ -882,7 +885,7 @@ namespace rt {
 			if (rt::g_mouseCapture) {
 				rt::g_mouseCapture = false;
 				ReleaseCapture();
-				ShowCursor(TRUE);
+				//ShowCursor(TRUE);
 			}
 			return 0;
 		case WM_MOUSEMOVE:
@@ -1204,6 +1207,9 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
 	//OXRWXR CHANGE:
 	//---------------- 
 	// Do first time setup for this instance
+	SetCursorPos(0, 0);
+	ShowCursor(FALSE);
+
 	Logf("[WinXrApi] Starting Up");
 	WSADATA wsaData;
 	WSAStartup(MAKEWORD(2, 2), &wsaData);
@@ -1366,11 +1372,15 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
 		hmdMake = "FORCE FIX HANDS";
 	}
 
+	aerMode = "1"; //3D SBS (0 for monocular VR, 2 for AER)
+
 	//Load the config for the OXRWXR runtime
 	if (std::filesystem::exists(confPath) && std::filesystem::is_directory(confPath)) {
 		if (std::filesystem::exists(confFile) && std::filesystem::is_regular_file(confFile)) {
 			try {
 				std::ifstream confFileOpen(confFile);
+
+				bool tryAER = false;
 
 				std::string line;
 				while (std::getline(confFileOpen, line)) {
@@ -1379,9 +1389,11 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
 							ui::g_uiState.viewMode = ui::ViewMode::BothEyes;
 						}
 						else if (compareValue(line, "left_eye") && ui::g_uiState.viewMode != ui::ViewMode::LeftEyeOnly) {
+							aerMode = "0";
 							ui::g_uiState.viewMode = ui::ViewMode::LeftEyeOnly;
 						}
 						else if (compareValue(line, "right_eye") && ui::g_uiState.viewMode != ui::ViewMode::RightEyeOnly) {
+							aerMode = "0";
 							ui::g_uiState.viewMode = ui::ViewMode::RightEyeOnly;
 						}
 					}
@@ -1390,8 +1402,19 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
 						verboseLogging = parseBool(line);
 					}
 
-					//XRTODO:
-					//Maybe support a config flag like depth_mode=stereo (or mono, or AER)
+					if (compareKey(line, "depth_mode")) {
+						if (compareValue(line, "aer")) {
+							tryAER = true;
+						}
+					}
+				}
+
+				if (tryAER) {
+					//We will enable AER mode
+					ui::g_uiState.viewMode = ui::ViewMode::LeftEyeOnly;
+					bEnableAltEyeRendering = true;
+					bAltEyeRender = false;
+					aerMode = "2";
 				}
 
 				confFileOpen.close();
@@ -1407,8 +1430,6 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
 
 	Logf("[WinXrUDP] Starting UDP");
 	udpReader = new WinXrApiUDP();
-
-	aerMode = "1"; //3D SBS (0 for monocular VR)
 
 	// AER is not likely necessary for non-VR apps, they can use SBS via reshade most often
 	/*if (bEnableAltEyeRendering)
@@ -2618,7 +2639,7 @@ static XrResult XRAPI_PTR xrWaitFrame_runtime(XrSession, const XrFrameWaitInfo*,
 	if (hmdMake == "PICO" || hmdModel == "QUEST 2" || hmdMake == "PLAY FOR DREAM" || hmdMake == "FORCE FIX HANDS") {
 		XrVector4f flip = { 0.0f, 0.0f, 1.0f, 0.0f }; // 180° rotation around X-axis
 		LHandQuat = QuaternionMultiply(flip, LHandQuat);
-		RHandQuat = QuaternionMultiply(flip, RHandQuat); 
+		RHandQuat = QuaternionMultiply(flip, RHandQuat);
 		UpsideDownHandsFix = true;
 	}
 	else {
@@ -2865,6 +2886,8 @@ static void ensurePreviewSized(rt::Session& s, UINT width, UINT height, DXGI_FOR
 
 			SetForegroundWindow(s.hwnd);
 
+			ShowCursor(FALSE);
+
 			// Also save to persistent storage right away
 			{
 				std::lock_guard<std::mutex> lock(rt::g_windowMutex);
@@ -2961,6 +2984,9 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
 	//---------------- 
 	// Red sync for (DX11)
 	int redIntensity = OpenXRFrameID;
+
+	int blueIntensity = 0;	
+	if (bEnableAltEyeRendering && bAltEyeRender) blueIntensity = 255;
 
 	if (!rtv) {
 		Log("[OXRWXR] blitViewToHalf: rtv is null!");
@@ -3157,7 +3183,7 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
 
 		if (flipColorOrder) {
 			for (int i = 0; i < 10 * 10; i++) {
-				data[i * 4 + 0] = 0; // B
+				data[i * 4 + 0] = (bEnableAltEyeRendering && bAltEyeRender) ? 255 : 0; // B
 				data[i * 4 + 1] = 0;   // G
 				data[i * 4 + 2] = OpenXRFrameID;   // R
 				data[i * 4 + 3] = 255; // A
@@ -3167,7 +3193,7 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
 			for (int i = 0; i < 10 * 10; i++) {
 				data[i * 4 + 0] = OpenXRFrameID; // R
 				data[i * 4 + 1] = 0;   // G
-				data[i * 4 + 2] = 0;   // B
+				data[i * 4 + 2] = (bEnableAltEyeRendering && bAltEyeRender) ? 255 : 0;   // B
 				data[i * 4 + 3] = 255; // A
 			}
 		}
@@ -3323,6 +3349,9 @@ static void blitD3D12ToPreview(rt::Session& s,
 			// Now with red sync for (DX12)
 			float redIntensity = (OpenXRFrameID / 255.0f);
 
+			float blueIntensity = 0.0f;
+			if (bEnableAltEyeRendering && bAltEyeRender) blueIntensity = 1.0f;
+
 			if (idx >= chain.images12.size() || !chain.images12[idx]) return false;
 			if (chain.imageStates12.size() <= idx) {
 				Logf("[OXRWXR] blitD3D12ToPreview: %s missing state tracking", label);
@@ -3359,7 +3388,7 @@ static void blitD3D12ToPreview(rt::Session& s,
 				D3D12_RESOURCE_STATES backbufferState = D3D12_RESOURCE_STATE_PRESENT;
 				transition(backbuffer, backbufferState, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
-				float red[4] = { redIntensity, 0.0f, 0.0f, 1.0f };
+				float red[4] = { redIntensity, 0.0f, blueIntensity, 1.0f };
 				D3D12_RECT rect = { 0, 0, 10, 10 };
 				D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = s.previewRTVHeap->GetCPUDescriptorHandleForHeapStart();
 				s.previewCmdList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
@@ -3372,7 +3401,7 @@ static void blitD3D12ToPreview(rt::Session& s,
 			return true;
 		};
 
-	const bool singleEye = (viewMode != ui::ViewMode::BothEyes);
+	bool singleEye = (viewMode != ui::ViewMode::BothEyes);
 	bool forceSingleEye = false;
 	static bool loggedAnaglyph = false;
 	ui::DisplayLayout effectiveLayout = layout;
@@ -3693,9 +3722,9 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
 			s.d3d11Device->CreateTexture2D(&texDesc, &initData, &rightTex2D);
 
 			// Use shader-based rendering for proper side-by-side display
-			const bool singleEye = (viewMode != ui::ViewMode::BothEyes);
-			const bool showLeft = (viewMode != ui::ViewMode::RightEyeOnly);
-			const bool showRight = (viewMode != ui::ViewMode::LeftEyeOnly);
+			bool singleEye = (viewMode != ui::ViewMode::BothEyes);
+			bool showLeft = (viewMode != ui::ViewMode::RightEyeOnly);
+			bool showRight = (viewMode != ui::ViewMode::LeftEyeOnly);
 
 			// Initialize blit resources if not already done
 			if (!rt::InitBlitResources(s)) {
@@ -3802,7 +3831,7 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
 			//OXRWXR CHANGE:
 			//---------------- 
 			// Helper lambda to blit a solid red quad (OPENGL)
-			auto blitRedQuad = [&](const D3D11_VIEWPORT& vp, int redVal = 255) {
+			auto blitRedQuad = [&](const D3D11_VIEWPORT& vp, int redIntensity = 255) {
 				// Define a simple red pixel shader
 				struct Vertex {
 					float x, y, z;
@@ -3856,9 +3885,9 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
 				struct ColorConstantBuffer {
 					float color[4];
 				} colorBuffer;
-				colorBuffer.color[0] = redVal;
+				colorBuffer.color[0] = redIntensity;
 				colorBuffer.color[1] = 0;
-				colorBuffer.color[2] = 0;
+				colorBuffer.color[2] = (bEnableAltEyeRendering && bAltEyeRender) ? 255 : 0;
 				colorBuffer.color[3] = 255;
 				s.d3d11Context->UpdateSubresource(s.colorConstantBuffer.Get(), 0, nullptr, &colorBuffer, 0, 0);
 				s.d3d11Context->PSSetConstantBuffers(0, 1, s.colorConstantBuffer.GetAddressOf());
@@ -3962,9 +3991,9 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
 		int targetHeight = (int)height;
 		ui::CalculateWindowSize((int)width, (int)height, targetWidth, targetHeight);
 		ensurePreviewSized(s, (UINT)targetWidth, (UINT)targetHeight, displayFormat);
-		const bool singleEye = (viewMode != ui::ViewMode::BothEyes);
-		const bool showLeft = (viewMode != ui::ViewMode::RightEyeOnly);
-		const bool showRight = (viewMode != ui::ViewMode::LeftEyeOnly);
+		bool singleEye = (viewMode != ui::ViewMode::BothEyes);
+		bool showLeft = (viewMode != ui::ViewMode::RightEyeOnly);
+		bool showRight = (viewMode != ui::ViewMode::LeftEyeOnly);
 
 		// Get left image index
 		uint32_t leftIdx = 0;
@@ -4143,6 +4172,17 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
 			else {
 				g_presentPending = true;
 			}
+		}
+	}
+
+	if (bEnableAltEyeRendering) {
+		bAltEyeRender = !bAltEyeRender;
+
+		if (bAltEyeRender) {
+			ui::g_uiState.viewMode = ui::ViewMode::RightEyeOnly;
+		}
+		else {
+			ui::g_uiState.viewMode = ui::ViewMode::LeftEyeOnly;
 		}
 	}
 }
@@ -4588,7 +4628,7 @@ static XrResult XRAPI_PTR xrLocateViews_runtime(XrSession, const XrViewLocateInf
 		//OXRWXR CHANGE:
 		//---------------- 
 		// Use IPD and FOV from XrAPI
-		
+
 		// Apply IPD offset in full head orientation space (yaw+pitch)
 		// This fixes stereo geometry and eliminates warping when pitching
 		float eyeOffset = (i == 0 ? -IPDVal * 0.5f : IPDVal * 0.5f);
