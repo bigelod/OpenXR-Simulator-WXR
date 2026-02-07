@@ -167,7 +167,7 @@ static void EnsureLogFile() {
 	}
 	fopen_s(&g_LogFile, path, "w");
 }
-static void Log(const char* msg) {	
+static void Log(const char* msg) {
 	OutputDebugStringA(msg);
 	EnsureLogFile();
 	if (g_LogFile) { fputs(msg, g_LogFile); if (msg[0] && msg[strlen(msg) - 1] != '\n') fputc('\n', g_LogFile); fflush(g_LogFile); }
@@ -285,6 +285,8 @@ static DXGI_FORMAT ToTypeless(DXGI_FORMAT format) {
 //---------------- 
 // Create global variables
 static bool verboseLogging = false;
+static std::string aerMode;
+static bool sendHaptics = true;
 
 static WinXrApiUDP* udpReader;
 
@@ -315,14 +317,22 @@ static bool RTrigger = false;
 static bool RGrip = false;
 static bool RClick = false;
 static bool L_X = false;
+static bool L_X_Once = false;
 static bool L_Y = false;
+static bool L_Y_Once = false;
 static bool R_A = false;
 static bool R_A_Once = false;
 static bool R_B = false;
 static bool R_B_Once = false;
 static bool L_Menu = false;
+static bool L_ThumbDown = false;
+static bool L_ThumbUp = false;
+static bool L_ThumbLeft = false;
+static bool L_ThumbRight = false;
 static bool R_ThumbDown = false;
 static bool R_ThumbUp = false;
+static bool R_ThumbLeft = false;
+static bool R_ThumbRight = false;
 static bool UpsideDownHandsFix = false;
 
 static XrVector3f HMDPos;
@@ -533,18 +543,19 @@ namespace rt {
 		XrVector3f angularVelocity; // rad/s
 		float prevYaw;              // Previous yaw for angular velocity
 		float prevPitch;            // Previous pitch for angular velocity
+		float prevRoll;				// Previous roll for angular velocity
 	};
 	static ControllerState g_leftController = {
 		{-0.2f, -0.3f, -0.4f}, 0.0f, -0.3f, true,  // Position/orientation
 		false, false, false, false, false, false,   // Button states
 		0.0f, 0.0f, 0.0f, {0.0f, 0.0f},                   // Analog values
-		{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, 0.0f, 0.0f  // Velocity tracking
+		{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, 0.0f, 0.0f, 0.0f  // Velocity tracking
 	};
 	static ControllerState g_rightController = {
 		{0.2f, -0.3f, -0.4f}, 0.0f, -0.3f, true,   // Position/orientation
 		false, false, false, false, false, false,   // Button states
 		0.0f, 0.0f, 0.0f, {0.0f, 0.0f},                   // Analog values
-		{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, 0.0f, 0.0f  // Velocity tracking
+		{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, 0.0f, 0.0f, 0.0f  // Velocity tracking
 	};
 
 	// Map XrSpace handles to controller type (0=none, 1=left grip, 2=left aim, 3=right grip, 4=right aim)
@@ -568,23 +579,6 @@ namespace rt {
 		//OXRWXR CHANGE:
 		//---------------- 
 		// We get real position + rotation now
-		
-		// Controller orientation = head orientation + controller offsets
-		//float totalYaw = g_headYaw + ctrl.yawOffset;
-		//float totalPitch = g_headPitch + ctrl.pitchOffset;
-		//float totalRoll = g_headRoll + ctrl.rollOffset;
-		//outPose->orientation = QuatFromYawPitchRoll(totalYaw, totalPitch, totalRoll); //QuatFromYawPitch(totalYaw, totalPitch);
-
-		// Controller position = head position + rotated offset
-		// Rotate the offset by head yaw only (not pitch) for natural hand movement
-		//XrQuaternionf headYawQ = QuatFromYawPitch(g_headYaw, 0.0f);
-
-		// Simple rotation of offset by head yaw
-		//float cosY = cosf(g_headYaw);
-		//float sinY = sinf(g_headYaw);
-		//outPose->position.x = g_headPos.x + ctrl.posOffset.x * cosY - ctrl.posOffset.z * sinY;
-		//outPose->position.y = g_headPos.y + ctrl.posOffset.y;
-		//outPose->position.z = g_headPos.z + ctrl.posOffset.x * sinY + ctrl.posOffset.z * cosY;
 
 		if (isRight) {
 			outPose->orientation = { RHandQuat.x, RHandQuat.y, RHandQuat.z, RHandQuat.w };
@@ -1402,7 +1396,7 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
 	Logf("[WinXrUDP] Starting UDP");
 	udpReader = new WinXrApiUDP();
 
-	std::string aerMode = "1"; //3D SBS (0 for monocular VR)
+	aerMode = "1"; //3D SBS (0 for monocular VR)
 
 	// AER is not likely necessary for non-VR apps, they can use SBS via reshade most often
 	/*if (bEnableAltEyeRendering)
@@ -2193,7 +2187,7 @@ static XrResult XRAPI_PTR xrAcquireSwapchainImage_runtime(XrSwapchain sc, const 
 
 	static int acquireCount = 0;
 	if (++acquireCount % 60 == 1) {  // Log every 60 calls
-		Logf("[OXRWXR] xrAcquireSwapchainImage: sc=%p idx=%u (format=%d, %ux%u)",
+		if (verboseLogging) Logf("[OXRWXR] xrAcquireSwapchainImage: sc=%p idx=%u (format=%d, %ux%u)",
 			sc, i, (int)ch.format, ch.width, ch.height);
 	}
 	return XR_SUCCESS;
@@ -2218,14 +2212,14 @@ static XrResult XRAPI_PTR xrReleaseSwapchainImage_runtime(XrSwapchain sc, const 
 			// Check and log current GL context
 			HGLRC currentRC = wglGetCurrentContext();
 			HDC currentDC = wglGetCurrentDC();
-			Logf("[OXRWXR]   At release: currentRC=%p, currentDC=%p, sessionRC=%p, sessionDC=%p",
+			if (verboseLogging) Logf("[OXRWXR]   At release: currentRC=%p, currentDC=%p, sessionRC=%p, sessionDC=%p",
 				currentRC, currentDC, rt::g_session.glRC, rt::g_session.glDC);
 
 			// Ensure the session's GL context is current before reading
 			HGLRC savedRC = currentRC;
 			HDC savedDC = currentDC;
 			if (currentRC != rt::g_session.glRC && rt::g_session.glRC && rt::g_session.glDC) {
-				Logf("[OXRWXR]   At release: Switching to session GL context");
+				if (verboseLogging) Logf("[OXRWXR]   At release: Switching to session GL context");
 				wglMakeCurrent(rt::g_session.glDC, rt::g_session.glRC);
 			}
 
@@ -2302,7 +2296,7 @@ static XrResult XRAPI_PTR xrReleaseSwapchainImage_runtime(XrSwapchain sc, const 
 				glBindTexture(GL_TEXTURE_2D, 0);
 
 				GLenum glError2 = glGetError();
-				Logf("[OXRWXR]   At release: tex=%u isValid=%d err1=0x%X err2=0x%X boundFBO=%d currPx=[%d,%d,%d,%d] newPx=[%d,%d,%d,%d] texPx=[%d,%d,%d,%d] size=%dx%d fmt=0x%X",
+				if (verboseLogging) Logf("[OXRWXR]   At release: tex=%u isValid=%d err1=0x%X err2=0x%X boundFBO=%d currPx=[%d,%d,%d,%d] newPx=[%d,%d,%d,%d] texPx=[%d,%d,%d,%d] size=%dx%d fmt=0x%X",
 					glTex, (int)isValidTex, glError1, glError2, currentBoundFBO,
 					currentFboPixel[0], currentFboPixel[1], currentFboPixel[2], currentFboPixel[3],
 					fboPixel[0], fboPixel[1], fboPixel[2], fboPixel[3],
@@ -2585,12 +2579,26 @@ static XrResult XRAPI_PTR xrWaitFrame_runtime(XrSession, const XrFrameWaitInfo*,
 	RTrigger = buttonBools[18];
 	RGrip = buttonBools[12];
 	RClick = buttonBools[13];
+
+	L_X_Once = (!L_X && buttonBools[8]);
+	L_Y_Once = (!L_Y && buttonBools[9]);
+	R_A_Once = (!R_A && buttonBools[10]);
+	R_B_Once = (!R_B && buttonBools[11]);
+
 	L_X = buttonBools[8];
 	L_Y = buttonBools[9];
 	R_A = buttonBools[10];
 	R_B = buttonBools[11];
+
 	L_Menu = buttonBools[1];
 
+	L_ThumbLeft = buttonBools[3];
+	L_ThumbRight = buttonBools[4];
+	L_ThumbUp = buttonBools[5];
+	L_ThumbDown = buttonBools[6];
+
+	R_ThumbLeft = buttonBools[14];
+	R_ThumbRight = buttonBools[15];
 	R_ThumbUp = buttonBools[16];
 	R_ThumbDown = buttonBools[17];
 
@@ -2603,201 +2611,38 @@ static XrResult XRAPI_PTR xrWaitFrame_runtime(XrSession, const XrFrameWaitInfo*,
 	}
 
 	//Brute force melee gesture logging
-	//prevLHandPos[lastPosFrame] = LHandPos;
-	//prevRHandPos[lastPosFrame] = RHandPos;
+	prevLHandPos[lastPosFrame] = LHandPos;
+	prevRHandPos[lastPosFrame] = RHandPos;
 
 	lastPosFrame += 1;
 	if (lastPosFrame > 4) {
 		lastPosFrame = 0;
 	}
 
-
-	//rt::g_headRoll += moveSpeed * deltaTime;
-
-
-	// Handle WASD keyboard input for movement (relative to head orientation)
-	//if (rt::g_session.isFocused) {
-	const float moveSpeed = 3.0f;  // meters per second
-	float deltaTime = (float)periodSec;
-
-	//----------------
-	//OXRWXR CHANGE:
-	//---------------- 
-	// Update position and rotation of the head
-	/*XrVector4f quat = XrVector4f{ HMDQuat.x, HMDQuat.y, -HMDQuat.z, HMDQuat.w };
-
-	auto quatToEuler = [](const XrVector4f& q) {
-		float roll = atan2f(2 * (q.w * q.x + q.y * q.z), 1 - 2 * (q.x * q.x + q.y * q.y));
-		float pitch = asinf(std::max(-1.0f, std::min(1.0f, 2 * (q.w * q.y - q.z * q.x))));
-		float yaw = atan2f(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z));
-		return std::make_tuple(yaw, pitch, roll);
-		};*/
-
-	//std::tie(rt::g_headPitch, rt::g_headYaw, rt::g_headRoll) = quatToEuler(quat);
-
-	//XrQuaternionf headQ = { quat.x, quat.y, quat.z, quat.w }; //rt::QuatFromYawPitchRoll(rt::g_headYaw, rt::g_headPitch, rt::g_headRoll);
-	//XrVector3f fwd = rt::RotateVectorByQuaternion(headQ, XrVector3f{ 0.0f, 0.0f, -1.0f });
-	//XrVector3f right = rt::RotateVectorByQuaternion(headQ, XrVector3f{ 1.0f, 0.0f, 0.0f });
-
 	rt::g_headPos = HMDPos;
 
-	/*if (GetAsyncKeyState('W') & 0x8000) {
-		rt::g_headPos.x += fwd.x * moveSpeed * deltaTime;
-		rt::g_headPos.y += fwd.y * moveSpeed * deltaTime;
-		rt::g_headPos.z += fwd.z * moveSpeed * deltaTime;
-	}
-	if (GetAsyncKeyState('S') & 0x8000) {
-		rt::g_headPos.x -= fwd.x * moveSpeed * deltaTime;
-		rt::g_headPos.y -= fwd.y * moveSpeed * deltaTime;
-		rt::g_headPos.z -= fwd.z * moveSpeed * deltaTime;
-	}
-	if (GetAsyncKeyState('A') & 0x8000) {
-		rt::g_headPos.x -= right.x * moveSpeed * deltaTime;
-		rt::g_headPos.y -= right.y * moveSpeed * deltaTime;
-		rt::g_headPos.z -= right.z * moveSpeed * deltaTime;
-	}
-	if (GetAsyncKeyState('D') & 0x8000) {
-		rt::g_headPos.x += right.x * moveSpeed * deltaTime;
-		rt::g_headPos.y += right.y * moveSpeed * deltaTime;
-		rt::g_headPos.z += right.z * moveSpeed * deltaTime;
-	}*/
-	if (GetAsyncKeyState('Q') & 0x8000) {
-		rt::g_headPos.y -= moveSpeed * deltaTime;
-	}
-	if (GetAsyncKeyState('E') & 0x8000) {
-		rt::g_headPos.y += moveSpeed * deltaTime;
-	}
+	float deltaTime = (float)periodSec;
 
-	// ========================================
-	// Automatic Controller Animation Mode
-	// ========================================
-	// Press 'M' to toggle automatic motion - controller moves in a pattern
-	static bool autoMotionEnabled = true;  // Start with auto motion ON for testing
-	static bool mKeyWasPressed = false;
-	static float animTime = 0.0f;
-
-	bool mKeyPressed = (GetAsyncKeyState('M') & 0x8000) != 0;
-	if (mKeyPressed && !mKeyWasPressed) {
-		autoMotionEnabled = !autoMotionEnabled;
-		Logf("[OXRWXR] Auto motion %s", autoMotionEnabled ? "ENABLED" : "DISABLED");
-	}
-	mKeyWasPressed = mKeyPressed;
-
-	if (autoMotionEnabled) {
-		animTime += deltaTime;
-
-		// Move controller in a figure-8 pattern around the camera
-		// X: side to side (left/right)
-		// Y: up and down
-		// Z: forward and back
-		float radius = 0.4f;  // 40cm radius of motion
-		float speed = 0.5f;   // Complete cycle every ~12 seconds
-
-		// Figure-8 pattern
-		rt::g_rightController.posOffset.x = radius * sinf(animTime * speed * 2.0f);
-		rt::g_rightController.posOffset.y = -0.2f + 0.3f * sinf(animTime * speed);  // Oscillate between -0.5 and +0.1
-		rt::g_rightController.posOffset.z = -0.4f + radius * sinf(animTime * speed) * cosf(animTime * speed);
-
-		// Also rotate the controller
-		rt::g_rightController.yawOffset = 0.5f * sinf(animTime * speed * 1.5f);
-		rt::g_rightController.pitchOffset = -0.3f + 0.3f * cosf(animTime * speed);
-	}
-
-	// Right controller manipulation (numpad keys) - only when auto motion is off
-	// Numpad 8/2: Move controller forward/back (in local space)
-	// Numpad 4/6: Move controller left/right (in local space)
-	// Numpad +/-: Move controller up/down
-	// Numpad 7/9: Rotate controller yaw
-	// Numpad 1/3: Rotate controller pitch
-	const float ctrlMoveSpeed = 0.5f * deltaTime;
-	const float ctrlRotSpeed = 1.0f * deltaTime;
-
-	if (!autoMotionEnabled) {
-		if (GetAsyncKeyState(VK_NUMPAD8) & 0x8000) {
-			rt::g_rightController.posOffset.z -= ctrlMoveSpeed;  // Forward
-		}
-		if (GetAsyncKeyState(VK_NUMPAD2) & 0x8000) {
-			rt::g_rightController.posOffset.z += ctrlMoveSpeed;  // Back
-		}
-		if (GetAsyncKeyState(VK_NUMPAD4) & 0x8000) {
-			rt::g_rightController.posOffset.x -= ctrlMoveSpeed;  // Left
-		}
-		if (GetAsyncKeyState(VK_NUMPAD6) & 0x8000) {
-			rt::g_rightController.posOffset.x += ctrlMoveSpeed;  // Right
-		}
-		if (GetAsyncKeyState(VK_ADD) & 0x8000) {
-			rt::g_rightController.posOffset.y += ctrlMoveSpeed;  // Up
-		}
-		if (GetAsyncKeyState(VK_SUBTRACT) & 0x8000) {
-			rt::g_rightController.posOffset.y -= ctrlMoveSpeed;  // Down
-		}
-		if (GetAsyncKeyState(VK_NUMPAD7) & 0x8000) {
-			rt::g_rightController.yawOffset -= ctrlRotSpeed;  // Rotate left
-		}
-		if (GetAsyncKeyState(VK_NUMPAD9) & 0x8000) {
-			rt::g_rightController.yawOffset += ctrlRotSpeed;  // Rotate right
-		}
-		if (GetAsyncKeyState(VK_NUMPAD1) & 0x8000) {
-			rt::g_rightController.pitchOffset += ctrlRotSpeed;  // Pitch down
-		}
-		if (GetAsyncKeyState(VK_NUMPAD3) & 0x8000) {
-			rt::g_rightController.pitchOffset -= ctrlRotSpeed;  // Pitch up
-		}
-	}
-	// Numpad 5: Reset controller to default position
-	if (GetAsyncKeyState(VK_NUMPAD5) & 0x8000) {
-		rt::g_rightController.posOffset = { 0.2f, -0.3f, -0.4f };
-		rt::g_rightController.yawOffset = 0.0f;
-		rt::g_rightController.pitchOffset = -0.3f;
-		autoMotionEnabled = false;
-	}
-
-	// ========================================
-	// Controller Button/Trigger Emulation
-	// ========================================
-	// Right controller buttons (main hand for most games)
-	// Space = Trigger (fire weapon)
-	// F = Grip (grab)
-	// Tab = Menu
-	// R = Primary button (A)
-	// T = Secondary button (B)
-	// Enter = Thumbstick click
-	rt::g_rightController.triggerPressed = (GetAsyncKeyState(VK_SPACE) & 0x8000) != 0;
+	rt::g_rightController.triggerPressed = RTrigger;
 	rt::g_rightController.triggerValue = rt::g_rightController.triggerPressed ? 1.0f : 0.0f;
-	rt::g_rightController.gripPressed = (GetAsyncKeyState('F') & 0x8000) != 0;
+	rt::g_rightController.gripPressed = RGrip;
 	rt::g_rightController.gripValue = rt::g_rightController.gripPressed ? 1.0f : 0.0f;
-	rt::g_rightController.menuPressed = (GetAsyncKeyState(VK_TAB) & 0x8000) != 0;
-	rt::g_rightController.primaryPressed = (GetAsyncKeyState('R') & 0x8000) != 0;
-	rt::g_rightController.secondaryPressed = (GetAsyncKeyState('T') & 0x8000) != 0;
-	rt::g_rightController.thumbstickPressed = (GetAsyncKeyState(VK_RETURN) & 0x8000) != 0;
+	rt::g_rightController.menuPressed = (RGrip && L_Menu); //Right grip + L Menu to trigger the OpenXR menu
+	rt::g_rightController.primaryPressed = R_A;
+	rt::g_rightController.secondaryPressed = R_B;
+	rt::g_rightController.thumbstickPressed = RClick;
 
-	// Left controller buttons (off-hand)
-	// Left Ctrl = Trigger
-	// Left Alt = Grip
-	// G = Menu (left hand)
-	// V = Primary (X)
-	// B = Secondary (Y)
-	rt::g_leftController.triggerPressed = (GetAsyncKeyState(VK_LCONTROL) & 0x8000) != 0;
+	rt::g_leftController.triggerPressed = LTrigger;
 	rt::g_leftController.triggerValue = rt::g_leftController.triggerPressed ? 1.0f : 0.0f;
-	rt::g_leftController.gripPressed = (GetAsyncKeyState(VK_LMENU) & 0x8000) != 0;
+	rt::g_leftController.gripPressed = LGrip;
 	rt::g_leftController.gripValue = rt::g_leftController.gripPressed ? 1.0f : 0.0f;
-	rt::g_leftController.menuPressed = (GetAsyncKeyState('G') & 0x8000) != 0;
-	rt::g_leftController.primaryPressed = (GetAsyncKeyState('V') & 0x8000) != 0;
-	rt::g_leftController.secondaryPressed = (GetAsyncKeyState('B') & 0x8000) != 0;
+	rt::g_leftController.menuPressed = L_Menu;
+	rt::g_leftController.primaryPressed = L_X;
+	rt::g_leftController.secondaryPressed = L_Y;
+	rt::g_leftController.thumbstickPressed = LClick;
 
-	// Right controller thumbstick (Arrow keys)
-	rt::g_rightController.thumbstick = { 0.0f, 0.0f };
-	if (GetAsyncKeyState(VK_UP) & 0x8000) rt::g_rightController.thumbstick.y = 1.0f;
-	if (GetAsyncKeyState(VK_DOWN) & 0x8000) rt::g_rightController.thumbstick.y = -1.0f;
-	if (GetAsyncKeyState(VK_LEFT) & 0x8000) rt::g_rightController.thumbstick.x = -1.0f;
-	if (GetAsyncKeyState(VK_RIGHT) & 0x8000) rt::g_rightController.thumbstick.x = 1.0f;
-
-	// Left controller thumbstick (IJKL keys)
-	rt::g_leftController.thumbstick = { 0.0f, 0.0f };
-	if (GetAsyncKeyState('I') & 0x8000) rt::g_leftController.thumbstick.y = 1.0f;
-	if (GetAsyncKeyState('K') & 0x8000) rt::g_leftController.thumbstick.y = -1.0f;
-	if (GetAsyncKeyState('J') & 0x8000) rt::g_leftController.thumbstick.x = -1.0f;
-	if (GetAsyncKeyState('L') & 0x8000) rt::g_leftController.thumbstick.x = 1.0f;
+	rt::g_rightController.thumbstick = RThumbstick;
+	rt::g_leftController.thumbstick = LThumbstick;
 
 	// ========================================
 	// Velocity Tracking for Motion Controls
@@ -2824,22 +2669,24 @@ static XrResult XRAPI_PTR xrWaitFrame_runtime(XrSession, const XrFrameWaitInfo*,
 		//float totalRightPitch = rt::g_headPitch + rt::g_rightController.pitchOffset;
 		rt::g_rightController.angularVelocity.x = (rt::g_rightController.pitchOffset - rt::g_rightController.prevPitch) / deltaTime;
 		rt::g_rightController.angularVelocity.y = (rt::g_rightController.yawOffset - rt::g_rightController.prevYaw) / deltaTime;
-		rt::g_rightController.angularVelocity.z = 0.0f;
+		rt::g_rightController.angularVelocity.z = (rt::g_rightController.rollOffset - rt::g_rightController.prevRoll) / deltaTime;
 
 		//float totalLeftYaw = rt::g_headYaw + rt::g_leftController.yawOffset;
 		//float totalLeftPitch = rt::g_headPitch + rt::g_leftController.pitchOffset;
 		rt::g_leftController.angularVelocity.x = (rt::g_leftController.pitchOffset - rt::g_leftController.prevPitch) / deltaTime;
 		rt::g_leftController.angularVelocity.y = (rt::g_leftController.yawOffset - rt::g_leftController.prevYaw) / deltaTime;
-		rt::g_leftController.angularVelocity.z = 0.0f;
+		rt::g_leftController.angularVelocity.z = (rt::g_leftController.rollOffset - rt::g_leftController.prevRoll) / deltaTime;
 
 		// Update previous state for next frame
 		rt::g_rightController.prevPosWorld = rightPose.position;
 		rt::g_rightController.prevYaw = rt::g_rightController.yawOffset;
 		rt::g_rightController.prevPitch = rt::g_rightController.pitchOffset;
+		rt::g_rightController.prevRoll = rt::g_rightController.rollOffset;
 
 		rt::g_leftController.prevPosWorld = leftPose.position;
 		rt::g_leftController.prevYaw = rt::g_leftController.yawOffset;
 		rt::g_leftController.prevPitch = rt::g_leftController.pitchOffset;
+		rt::g_leftController.prevRoll = rt::g_leftController.rollOffset;
 	}
 
 	// Check for MCP head pose commands (for automated testing)
@@ -4320,7 +4167,7 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
 	bool shouldLog = (++quadLogCount % 60 == 1);
 
 	if (shouldLog) {
-		Logf("[OXRWXR] Quad swapchain: handle=%llu, lastReleased=%u, lastAcquired=%u, texIdx=%u, imageCount=%u",
+		if (verboseLogging) Logf("[OXRWXR] Quad swapchain: handle=%llu, lastReleased=%u, lastAcquired=%u, texIdx=%u, imageCount=%u",
 			(unsigned long long)quad->subImage.swapchain, chain.lastReleased, chain.lastAcquired,
 			texIdx, chain.imageCount);
 	}
@@ -4339,7 +4186,7 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
 
 		// DEBUG: Log current context BEFORE switch
 		if (shouldLog) {
-			Logf("[OXRWXR] Quad GL context: current={RC=%p,DC=%p}, stored={RC=%p,DC=%p}",
+			if (verboseLogging) Logf("[OXRWXR] Quad GL context: current={RC=%p,DC=%p}, stored={RC=%p,DC=%p}",
 				savedRC, savedDC, s.glRC, s.glDC);
 		}
 
@@ -4347,7 +4194,7 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
 			BOOL switchResult = wglMakeCurrent(s.glDC, s.glRC);
 			if (shouldLog) {
 				HGLRC afterRC = wglGetCurrentContext();
-				Logf("[OXRWXR] Quad GL context switch: result=%d, afterRC=%p (expected %p)",
+				if (verboseLogging) Logf("[OXRWXR] Quad GL context switch: result=%d, afterRC=%p (expected %p)",
 					switchResult, afterRC, s.glRC);
 			}
 		}
@@ -4358,7 +4205,7 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
 		// DEBUG: Verify texture exists and is valid
 		if (shouldLog) {
 			GLboolean isValid = glIsTexture(glTex);
-			Logf("[OXRWXR] Quad texture check: glTex=%u, glIsTexture=%d", glTex, isValid);
+			if (verboseLogging) Logf("[OXRWXR] Quad texture check: glTex=%u, glIsTexture=%d", glTex, isValid);
 		}
 
 		// Read pixels from GL texture using FBO (more reliable than glGetTexImage)
@@ -4399,7 +4246,7 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
 		if (shouldLog) {
 			uint32_t pixelSum = 0;
 			for (size_t i = 0; i < std::min((size_t)4000, pixels.size()); i++) pixelSum += pixels[i];
-			Logf("[OXRWXR] Quad GL pixels: sum=%u, first 4=[%d,%d,%d,%d][%d,%d,%d,%d][%d,%d,%d,%d][%d,%d,%d,%d]",
+			if (verboseLogging) Logf("[OXRWXR] Quad GL pixels: sum=%u, first 4=[%d,%d,%d,%d][%d,%d,%d,%d][%d,%d,%d,%d][%d,%d,%d,%d]",
 				pixelSum, pixels[0], pixels[1], pixels[2], pixels[3],
 				pixels[4], pixels[5], pixels[6], pixels[7],
 				pixels[8], pixels[9], pixels[10], pixels[11],
@@ -4407,7 +4254,7 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
 			// Check middle of image
 			size_t midIdx = (texHeight / 2 * texWidth + texWidth / 2) * 4;
 			if (midIdx + 3 < pixels.size()) {
-				Logf("[OXRWXR] Quad GL middle pixel: [%d,%d,%d,%d]",
+				if (verboseLogging) Logf("[OXRWXR] Quad GL middle pixel: [%d,%d,%d,%d]",
 					pixels[midIdx], pixels[midIdx + 1], pixels[midIdx + 2], pixels[midIdx + 3]);
 			}
 		}
@@ -4450,7 +4297,7 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
 		}
 
 		if (shouldLog) {
-			Logf("[OXRWXR] Rendering quad layer (OpenGL): size=%.2fx%.2f, texSize=%ux%u, glTex=%u",
+			if (verboseLogging) Logf("[OXRWXR] Rendering quad layer (OpenGL): size=%.2fx%.2f, texSize=%ux%u, glTex=%u",
 				quad->size.width, quad->size.height, texWidth, texHeight, glTex);
 		}
 	}
@@ -4506,7 +4353,7 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
 		s.d3d11Context->CopySubresourceRegion(quadTex.Get(), 0, 0, 0, 0, chain.images[texIdx].Get(), srcSubresource, &box);
 
 		if (shouldLog) {
-			Logf("[OXRWXR] Rendering quad layer (D3D11): size=%.2fx%.2f, texSize=%ux%u, typedFmt=%d, srcFmt=%d, arraySlice=%u",
+			if (verboseLogging) Logf("[OXRWXR] Rendering quad layer (D3D11): size=%.2fx%.2f, texSize=%ux%u, typedFmt=%d, srcFmt=%d, arraySlice=%u",
 				quad->size.width, quad->size.height, srcDesc.Width, srcDesc.Height, typedFormat, srcDesc.Format, arraySlice);
 		}
 	}
@@ -4660,7 +4507,7 @@ static XrResult XRAPI_PTR xrEndFrame_runtime(XrSession, const XrFrameEndInfo* in
 	}
 
 	if (shouldLog && (quadCount > 0 || cylinderCount > 0)) {
-		Logf("[OXRWXR] xrEndFrame: proj=%d quad=%d cyl=%d other=%d",
+		if (verboseLogging) Logf("[OXRWXR] xrEndFrame: proj=%d quad=%d cyl=%d other=%d",
 			projectionCount, quadCount, cylinderCount, otherCount);
 	}
 
@@ -4725,10 +4572,14 @@ static XrResult XRAPI_PTR xrLocateViews_runtime(XrSession, const XrViewLocateInf
 		views[i].type = XR_TYPE_VIEW;
 		views[i].pose.orientation = orientation;
 
-		//XRTODO: IPD here
+		//----------------
+		//OXRWXR CHANGE:
+		//---------------- 
+		// Use IPD and FOV from XrAPI
+		
 		// Apply IPD offset in full head orientation space (yaw+pitch)
 		// This fixes stereo geometry and eliminates warping when pitching
-		float eyeOffset = (i == 0 ? -ipd * 0.5f : ipd * 0.5f);
+		float eyeOffset = (i == 0 ? -IPDVal * 0.5f : IPDVal * 0.5f);
 		XrVector3f localEyeOffset{ eyeOffset, 0.0f, 0.0f };
 		XrVector3f rotatedOffset = rotateVector(orientation, localEyeOffset);
 
@@ -4741,15 +4592,15 @@ static XrResult XRAPI_PTR xrLocateViews_runtime(XrSession, const XrViewLocateInf
 		// Configurable FOV from UI settings
 		// Convert degrees to tangent: tan(fovDegrees/2 * PI/180)
 		// Safeguard: ensure fovDegrees is valid (default to 90 if not)
-		int fovDeg = ui::g_uiState.fovDegrees;
-		if (fovDeg <= 0 || fovDeg > 180) fovDeg = 90;
-		float fovRadians = fovDeg * 0.5f * 3.14159265f / 180.0f;
-		float fovTan = tanf(fovRadians);
+		//int fovDeg = ui::g_uiState.fovDegrees;
+		//if (fovDeg <= 0 || fovDeg > 180) fovDeg = 90;
+		//float fovRadians = fovDeg * 0.5f * 3.14159265f / 180.0f;
+		float fovTan = tanf(FOVTotal / 2.0f); //fovRadians);
 		views[i].fov = { -fovTan, fovTan, fovTan, -fovTan };
 	}
 	static int locateCount = 0;
 	if (++locateCount % 90 == 1) {  // Log every 90 frames (~1 second)
-		Logf("[OXRWXR] xrLocateViews: pos=(%.2f,%.2f,%.2f) yaw=%.2f pitch=%.2f",
+		if (verboseLogging) Logf("[OXRWXR] xrLocateViews: pos=(%.2f,%.2f,%.2f) yaw=%.2f pitch=%.2f",
 			rt::g_headPos.x, rt::g_headPos.y, rt::g_headPos.z,
 			rt::g_headYaw, rt::g_headPitch);
 	}
@@ -4780,7 +4631,13 @@ static XrResult XRAPI_PTR xrLocateSpace_runtime(XrSpace space, XrSpace baseSpace
 		int ctrlType = it->second;
 		const rt::ControllerState& ctrl = (ctrlType == 1) ? rt::g_leftController : rt::g_rightController;
 
-		if (ctrl.isTracking) {
+		//----------------
+		//OXRWXR CHANGE:
+		//---------------- 
+		// Always tracking now
+		//if (ctrl.isTracking) {
+
+		if (true) {
 			location->locationFlags = XR_SPACE_LOCATION_POSITION_VALID_BIT |
 				XR_SPACE_LOCATION_ORIENTATION_VALID_BIT |
 				XR_SPACE_LOCATION_POSITION_TRACKED_BIT |
@@ -4801,7 +4658,7 @@ static XrResult XRAPI_PTR xrLocateSpace_runtime(XrSpace space, XrSpace baseSpace
 				float speed = sqrtf(ctrl.linearVelocity.x * ctrl.linearVelocity.x +
 					ctrl.linearVelocity.y * ctrl.linearVelocity.y +
 					ctrl.linearVelocity.z * ctrl.linearVelocity.z);
-				Logf("[OXRWXR] xrLocateSpace: controller %d at (%.2f, %.2f, %.2f) vel=(%.2f, %.2f, %.2f) speed=%.2f m/s",
+				if (verboseLogging) Logf("[OXRWXR] xrLocateSpace: controller %d at (%.2f, %.2f, %.2f) vel=(%.2f, %.2f, %.2f) speed=%.2f m/s",
 					ctrlType, location->pose.position.x, location->pose.position.y, location->pose.position.z,
 					ctrl.linearVelocity.x, ctrl.linearVelocity.y, ctrl.linearVelocity.z, speed);
 			}
@@ -5174,12 +5031,23 @@ static XrResult XRAPI_PTR xrGetViewConfigurationProperties_runtime(XrInstance, X
 }
 
 static XrResult XRAPI_PTR xrApplyHapticFeedback_runtime(XrSession, const XrHapticActionInfo* info, const XrHapticBaseHeader* haptic) {
-	// Just stub for now
+	if (udpReader) {
+		if (sendHaptics) {
+			udpReader->SendData("1 1 1 " + aerMode + " " + std::to_string(fovVarE) + " " + std::to_string(fovVarF));
+		}
+		else {
+			udpReader->SendData("0 0 1 " + aerMode + " " + std::to_string(fovVarE) + " " + std::to_string(fovVarF));
+		}
+	}
+
 	return XR_SUCCESS;
 }
 
 static XrResult XRAPI_PTR xrStopHapticFeedback_runtime(XrSession, const XrHapticActionInfo* info) {
-	// Just stub for now
+	if (udpReader) {
+		udpReader->SendData("0 0 1 " + aerMode + " " + std::to_string(fovVarE) + " " + std::to_string(fovVarF));
+	}
+
 	return XR_SUCCESS;
 }
 
