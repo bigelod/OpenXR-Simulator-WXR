@@ -379,7 +379,7 @@ static XrVector4f QuaternionMultiply(const XrVector4f& q1, const XrVector4f& q2)
 		q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z };
 }
 
-static bool parseBool(const std::string& str) {
+static bool parseBool(const std::string str) {
 	size_t pos = str.find('=');
 	if (pos == std::string::npos) return false;
 
@@ -388,7 +388,7 @@ static bool parseBool(const std::string& str) {
 	return value == "true" || value == "1" || value == "yes" || value == "t";
 }
 
-static bool compareValue(const std::string& str, const std::string& compareTo) {
+static bool compareValue(const std::string str, const std::string compareTo) {
 	size_t pos = str.find('=');
 	if (pos == std::string::npos) return false;
 
@@ -399,7 +399,7 @@ static bool compareValue(const std::string& str, const std::string& compareTo) {
 	return value == compareToLower;
 }
 
-static bool compareKey(const std::string& str, const std::string& compareTo) {
+static bool compareKey(const std::string str, const std::string compareTo) {
 	size_t pos = str.find('=');
 	if (pos == std::string::npos) return false;
 
@@ -1366,23 +1366,31 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
 		hmdMake = "FORCE FIX HANDS";
 	}
 
-	//XRTODO: define the conf data expected and allow it to be sent here
 	//Load the config for the OXRWXR runtime
 	if (std::filesystem::exists(confPath) && std::filesystem::is_directory(confPath)) {
 		if (std::filesystem::exists(confFile) && std::filesystem::is_regular_file(confFile)) {
 			try {
 				std::ifstream confFileOpen(confFile);
 
-				std::string confLine1;
-				std::string confLine2;
-
-				if (confFileOpen.is_open()) {
-					std::getline(confFileOpen, confLine1);
-					std::getline(confFileOpen, confLine2);
-					confFileOpen.close();
+				std::string line;
+				while (std::getline(confFileOpen, line)) {
+					if (compareKey(line, "display_mode")) {
+						if (compareValue(line, "both_eyes") && ui::g_uiState.viewMode != ui::ViewMode::BothEyes) {
+							ui::g_uiState.viewMode = ui::ViewMode::BothEyes;
+						}
+						else if (compareValue(line, "left_eye") && ui::g_uiState.viewMode != ui::ViewMode::LeftEyeOnly) {
+							ui::g_uiState.viewMode = ui::ViewMode::LeftEyeOnly;
+						}
+						else if (compareValue(line, "right_eye") && ui::g_uiState.viewMode != ui::ViewMode::RightEyeOnly) {
+							ui::g_uiState.viewMode = ui::ViewMode::RightEyeOnly;
+						}
+					}
 				}
 
-				//Logf("[WinXrApi] Conf found: %s, %s", confLine1, confLine2);
+				//XRTODO:
+				//Maybe support a config flag like depth_mode=stereo (or mono, or AER)
+
+				confFileOpen.close();
 			}
 			catch (const std::filesystem::filesystem_error& e) {
 
@@ -3634,7 +3642,7 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
 
 			// Use the standard preview path now that we have a D3D11 device
 			DXGI_FORMAT displayFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
-			const auto viewMode = ui::g_uiState.viewMode;
+			auto viewMode = ui::g_uiState.viewMode;
 			const auto layout = ui::g_uiState.displayLayout;
 			int targetWidth = (int)width;
 			int targetHeight = (int)height;
@@ -3944,7 +3952,7 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
 		// Use UNORM format for swapchain (SRGB not valid for FLIP_DISCARD)
 		// We create SRGB RTVs for proper gamma when rendering
 		DXGI_FORMAT displayFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
-		const auto viewMode = ui::g_uiState.viewMode;
+		auto viewMode = ui::g_uiState.viewMode;
 		const auto layout = ui::g_uiState.displayLayout;
 		int targetWidth = (int)width;
 		int targetHeight = (int)height;

@@ -68,7 +68,6 @@ enum class DisplayLayout {
 
 // UI State
 struct UIState {
-    //XRTODO: Change this starting view mode based on this a config file instead maybe? also FOV?
     ViewMode viewMode = ViewMode::BothEyes;
     DisplayLayout displayLayout = DisplayLayout::SideBySide;
     bool showStats = false;
