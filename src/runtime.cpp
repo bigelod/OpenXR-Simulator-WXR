@@ -153,7 +153,7 @@ inline UINT D3D12CalcSubresource(UINT MipSlice, UINT ArraySlice, UINT PlaneSlice
 // Simple logging (debug output + file log)
 static FILE* g_LogFile = nullptr;
 static void EnsureLogFile() {
-	if (g_LogFile) return;
+	/*if (g_LogFile) return;
 	char base[MAX_PATH]{};
 	DWORD len = GetEnvironmentVariableA("LOCALAPPDATA", base, (DWORD)sizeof(base));
 	char path[MAX_PATH]{};
@@ -165,7 +165,10 @@ static void EnsureLogFile() {
 	else {
 		snprintf(path, sizeof(path), ".\\openxr_wxr.log");
 	}
-	fopen_s(&g_LogFile, path, "w");
+	fopen_s(&g_LogFile, path, "w");*/
+	if (g_LogFile) return;
+	std::filesystem::create_directories("D:\\oxrwxr\\logs");
+	fopen_s(&g_LogFile, "D:\\oxrwxr\\logs\\openxr_wxr.log", "w");
 }
 static void Log(const char* msg) {
 	OutputDebugStringA(msg);
