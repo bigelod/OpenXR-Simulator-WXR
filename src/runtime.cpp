@@ -152,7 +152,7 @@ inline UINT D3D12CalcSubresource(UINT MipSlice, UINT ArraySlice, UINT PlaneSlice
 
 // Simple logging (debug output + file log)
 static FILE* g_LogFile = nullptr;
-static void EnsureLogFile() {
+static void EnsureLogFile(bool append = true) {
 	/*if (g_LogFile) return;
 	char base[MAX_PATH]{};
 	DWORD len = GetEnvironmentVariableA("LOCALAPPDATA", base, (DWORD)sizeof(base));
@@ -168,7 +168,12 @@ static void EnsureLogFile() {
 	fopen_s(&g_LogFile, path, "w");*/
 	if (g_LogFile) return;
 	std::filesystem::create_directories("D:\\oxrwxr\\logs");
-	fopen_s(&g_LogFile, "D:\\oxrwxr\\logs\\openxr_wxr.log", "w");
+	if (append) {
+		fopen_s(&g_LogFile, "D:\\oxrwxr\\logs\\openxr_wxr.log", "a");
+	}
+	else {
+		fopen_s(&g_LogFile, "D:\\oxrwxr\\logs\\openxr_wxr.log", "w");
+	}
 }
 static void Log(const char* msg) {
 	OutputDebugStringA(msg);
@@ -1005,7 +1010,7 @@ static XrResult XRAPI_PTR xrGetInstanceProcAddr_runtime(XrInstance, const char* 
 extern "C" __declspec(dllexport) XrResult XRAPI_CALL xrNegotiateLoaderRuntimeInterface(const XrNegotiateLoaderInfo* loaderInfo,
 	XrNegotiateRuntimeRequest* runtimeRequest) {
 	try {
-		EnsureLogFile();
+		EnsureLogFile(false);
 		Log("\n[OXRWXR] ========== OpenXR WXR Runtime Starting ==========\n");
 		if (!loaderInfo || !runtimeRequest) {
 			Log("[OXRWXR] xrNegotiateLoaderRuntimeInterface: ERROR - null parameters");
@@ -2235,8 +2240,8 @@ static XrResult XRAPI_PTR xrAcquireSwapchainImage_runtime(XrSwapchain sc, const 
 	if (index) *index = i;
 
 	static int acquireCount = 0;
-	if (++acquireCount % 60 == 1) {  // Log every 60 calls
-		if (verboseLogging) Logf("[OXRWXR] xrAcquireSwapchainImage: sc=%p idx=%u (format=%d, %ux%u)",
+	if (++acquireCount % 60 == 1 && verboseLogging) {  // Log every 60 calls
+		Logf("[OXRWXR] xrAcquireSwapchainImage: sc=%p idx=%u (format=%d, %ux%u)",
 			sc, i, (int)ch.format, ch.width, ch.height);
 	}
 	return XR_SUCCESS;
@@ -2251,8 +2256,8 @@ static XrResult XRAPI_PTR xrReleaseSwapchainImage_runtime(XrSwapchain sc, const 
 
 	static int releaseCount = 0;
 	bool shouldLog = (++releaseCount <= 10);
-	if (shouldLog || releaseCount % 60 == 1) {
-		if (verboseLogging) Logf("[OXRWXR] xrReleaseSwapchainImage: sc=%p released=%u", sc, ch.lastReleased);
+	if ((shouldLog || releaseCount % 60 == 1) && verboseLogging) {
+		Logf("[OXRWXR] xrReleaseSwapchainImage: sc=%p released=%u", sc, ch.lastReleased);
 
 		// DEBUG: Read texture content at release time to verify it has content
 		if (ch.backend == rt::Swapchain::Backend::OpenGL && !ch.imagesGL.empty() && ch.lastReleased < ch.imagesGL.size()) {
@@ -2480,8 +2485,8 @@ static XrResult XRAPI_PTR xrPollEvent_runtime(XrInstance, XrEventDataBuffer* b) 
 	static int pollCount = 0;
 	pollCount++;
 
-	if (pollCount <= 5) {  // Log first few polls
-		if (verboseLogging) Logf("[OXRWXR] xrPollEvent called (#%d), queue size=%zu", pollCount, rt::g_eventQueue.size());
+	if (pollCount <= 5 && verboseLogging) {  // Log first few polls
+		Logf("[OXRWXR] xrPollEvent called (#%d), queue size=%zu", pollCount, rt::g_eventQueue.size());
 	}
 
 	if (!b) return XR_ERROR_VALIDATION_FAILURE;
@@ -3001,7 +3006,7 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
 	// Red sync for (DX11)
 	int redIntensity = OpenXRFrameID;
 
-	int blueIntensity = 0;	
+	int blueIntensity = 0;
 	if (bEnableAltEyeRendering && bAltEyeRender) blueIntensity = 255;
 
 	if (!rtv) {
@@ -3041,8 +3046,8 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
 	if (isDepthFormat) {
 		// Depth swapchains are for depth testing, not preview rendering
 		static int depthSkipCount = 0;
-		if (++depthSkipCount % 60 == 1) {
-			if (verboseLogging) Logf("[OXRWXR] blitViewToHalf: Skipping depth format %d", srcDesc.Format);
+		if (++depthSkipCount % 60 == 1 && verboseLogging) {
+			Logf("[OXRWXR] blitViewToHalf: Skipping depth format %d", srcDesc.Format);
 		}
 		return;
 	}
@@ -3261,11 +3266,11 @@ static void blitViewToHalf(rt::Session& s, rt::Swapchain& chain, uint32_t srcInd
 	s.d3d11Context->PSSetShaderResources(0, 1, nullSRV);
 
 	static int debugCount = 0;
-	if (++debugCount % 120 == 1) {
-		if (verboseLogging) Logf("[OXRWXR] blitViewToHalf: srcIdx=%u slice=%u typedFmt=%d srcFmt=%d",
+	if (++debugCount % 120 == 1 && verboseLogging) {
+		Logf("[OXRWXR] blitViewToHalf: srcIdx=%u slice=%u typedFmt=%d srcFmt=%d",
 			srcIndex, arraySlice, typedFormat, srcDesc.Format);
-		if (verboseLogging) Logf("[OXRWXR]   viewport: x=%.0f y=%.0f w=%.0f h=%.0f", vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height);
-		if (verboseLogging) Logf("[OXRWXR]   srcSize: %ux%u, tempSize: %ux%u", srcDesc.Width, srcDesc.Height, tempDesc.Width, tempDesc.Height);
+		Logf("[OXRWXR]   viewport: x=%.0f y=%.0f w=%.0f h=%.0f", vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height);
+		Logf("[OXRWXR]   srcSize: %ux%u, tempSize: %ux%u", srcDesc.Width, srcDesc.Height, tempDesc.Width, tempDesc.Height);
 	}
 }
 
@@ -3486,7 +3491,7 @@ static bool g_presentPending = false;
 
 static void presentProjection(rt::Session& s, const XrCompositionLayerProjection& proj, bool skipPresent = false) {
 	ShowCursor(FALSE);
-	
+
 	if (verboseLogging) Log("[OXRWXR] ============================================");
 	if (verboseLogging) Logf("[OXRWXR] presentProjection called: viewCount=%u, skipPresent=%d", proj.viewCount, (int)skipPresent);
 	if (verboseLogging) Log("[OXRWXR] RENDERING FRAME TO PREVIEW WINDOW");
@@ -3699,8 +3704,8 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
 			int targetHeight = (int)height;
 			ui::CalculateWindowSize((int)width, (int)height, targetWidth, targetHeight);
 
-			if (glFrameCount % 60 == 1) {
-				if (verboseLogging) Logf("[OXRWXR] GL PREVIEW: targetSize=%dx%d, calling ensurePreviewSized", targetWidth, targetHeight);
+			if (glFrameCount % 60 == 1 && verboseLogging) {
+				Logf("[OXRWXR] GL PREVIEW: targetSize=%dx%d, calling ensurePreviewSized", targetWidth, targetHeight);
 			}
 
 			ensurePreviewSized(s, (UINT)targetWidth, (UINT)targetHeight, displayFormat);
@@ -4023,8 +4028,8 @@ static void presentProjection(rt::Session& s, const XrCompositionLayerProjection
 		}
 
 		static int blitCount = 0;
-		if (++blitCount % 60 == 1) {  // Log every 60 frames
-			if (verboseLogging) Logf("[OXRWXR] Blitting left eye: idx=%u (lastReleased=%u, lastAcquired=%u, imageCount=%u)",
+		if (++blitCount % 60 == 1 && verboseLogging) {  // Log every 60 frames
+			Logf("[OXRWXR] Blitting left eye: idx=%u (lastReleased=%u, lastAcquired=%u, imageCount=%u)",
 				leftIdx, chL.lastReleased, chL.lastAcquired, chL.imageCount);
 		}
 
@@ -4236,8 +4241,8 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
 	static int quadLogCount = 0;
 	bool shouldLog = (++quadLogCount % 60 == 1);
 
-	if (shouldLog) {
-		if (verboseLogging) Logf("[OXRWXR] Quad swapchain: handle=%llu, lastReleased=%u, lastAcquired=%u, texIdx=%u, imageCount=%u",
+	if (shouldLog && verboseLogging) {
+		Logf("[OXRWXR] Quad swapchain: handle=%llu, lastReleased=%u, lastAcquired=%u, texIdx=%u, imageCount=%u",
 			(unsigned long long)quad->subImage.swapchain, chain.lastReleased, chain.lastAcquired,
 			texIdx, chain.imageCount);
 	}
@@ -4255,16 +4260,16 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
 		HDC savedDC = wglGetCurrentDC();
 
 		// DEBUG: Log current context BEFORE switch
-		if (shouldLog) {
-			if (verboseLogging) Logf("[OXRWXR] Quad GL context: current={RC=%p,DC=%p}, stored={RC=%p,DC=%p}",
+		if (shouldLog && verboseLogging) {
+			Logf("[OXRWXR] Quad GL context: current={RC=%p,DC=%p}, stored={RC=%p,DC=%p}",
 				savedRC, savedDC, s.glRC, s.glDC);
 		}
 
 		if (s.glRC && s.glDC) {
 			BOOL switchResult = wglMakeCurrent(s.glDC, s.glRC);
-			if (shouldLog) {
+			if (shouldLog && verboseLogging) {
 				HGLRC afterRC = wglGetCurrentContext();
-				if (verboseLogging) Logf("[OXRWXR] Quad GL context switch: result=%d, afterRC=%p (expected %p)",
+				Logf("[OXRWXR] Quad GL context switch: result=%d, afterRC=%p (expected %p)",
 					switchResult, afterRC, s.glRC);
 			}
 		}
@@ -4273,9 +4278,9 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
 		glFinish();
 
 		// DEBUG: Verify texture exists and is valid
-		if (shouldLog) {
+		if (shouldLog && verboseLogging) {
 			GLboolean isValid = glIsTexture(glTex);
-			if (verboseLogging) Logf("[OXRWXR] Quad texture check: glTex=%u, glIsTexture=%d", glTex, isValid);
+			Logf("[OXRWXR] Quad texture check: glTex=%u, glIsTexture=%d", glTex, isValid);
 		}
 
 		// Read pixels from GL texture using FBO (more reliable than glGetTexImage)
@@ -4313,10 +4318,10 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
 		}
 
 		// Debug: check pixel values before flip
-		if (shouldLog) {
+		if (shouldLog && verboseLogging) {
 			uint32_t pixelSum = 0;
 			for (size_t i = 0; i < std::min((size_t)4000, pixels.size()); i++) pixelSum += pixels[i];
-			if (verboseLogging) Logf("[OXRWXR] Quad GL pixels: sum=%u, first 4=[%d,%d,%d,%d][%d,%d,%d,%d][%d,%d,%d,%d][%d,%d,%d,%d]",
+			Logf("[OXRWXR] Quad GL pixels: sum=%u, first 4=[%d,%d,%d,%d][%d,%d,%d,%d][%d,%d,%d,%d][%d,%d,%d,%d]",
 				pixelSum, pixels[0], pixels[1], pixels[2], pixels[3],
 				pixels[4], pixels[5], pixels[6], pixels[7],
 				pixels[8], pixels[9], pixels[10], pixels[11],
@@ -4324,7 +4329,7 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
 			// Check middle of image
 			size_t midIdx = (texHeight / 2 * texWidth + texWidth / 2) * 4;
 			if (midIdx + 3 < pixels.size()) {
-				if (verboseLogging) Logf("[OXRWXR] Quad GL middle pixel: [%d,%d,%d,%d]",
+				Logf("[OXRWXR] Quad GL middle pixel: [%d,%d,%d,%d]",
 					pixels[midIdx], pixels[midIdx + 1], pixels[midIdx + 2], pixels[midIdx + 3]);
 			}
 		}
@@ -4366,8 +4371,8 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
 			return;
 		}
 
-		if (shouldLog) {
-			if (verboseLogging) Logf("[OXRWXR] Rendering quad layer (OpenGL): size=%.2fx%.2f, texSize=%ux%u, glTex=%u",
+		if (shouldLog && verboseLogging) {
+			Logf("[OXRWXR] Rendering quad layer (OpenGL): size=%.2fx%.2f, texSize=%ux%u, glTex=%u",
 				quad->size.width, quad->size.height, texWidth, texHeight, glTex);
 		}
 	}
@@ -4422,8 +4427,8 @@ static void renderQuadLayer(rt::Session& s, const XrCompositionLayerQuad* quad) 
 		uint32_t srcSubresource = D3D11CalcSubresource(0, arraySlice, 1);
 		s.d3d11Context->CopySubresourceRegion(quadTex.Get(), 0, 0, 0, 0, chain.images[texIdx].Get(), srcSubresource, &box);
 
-		if (shouldLog) {
-			if (verboseLogging) Logf("[OXRWXR] Rendering quad layer (D3D11): size=%.2fx%.2f, texSize=%ux%u, typedFmt=%d, srcFmt=%d, arraySlice=%u",
+		if (shouldLog && verboseLogging) {
+			Logf("[OXRWXR] Rendering quad layer (D3D11): size=%.2fx%.2f, texSize=%ux%u, typedFmt=%d, srcFmt=%d, arraySlice=%u",
 				quad->size.width, quad->size.height, srcDesc.Width, srcDesc.Height, typedFormat, srcDesc.Format, arraySlice);
 		}
 	}
@@ -4499,8 +4504,8 @@ static XrResult XRAPI_PTR xrEndFrame_runtime(XrSession, const XrFrameEndInfo* in
 	// Log every frame for first 10 frames, then every 60 frames
 	bool shouldLog = (frameCount <= 10) || (frameCount % 60 == 1);
 
-	if (shouldLog) {
-		if (verboseLogging) Logf("[OXRWXR] xrEndFrame called (frame #%d)", frameCount);
+	if (shouldLog && verboseLogging) {
+		Logf("[OXRWXR] xrEndFrame called (frame #%d)", frameCount);
 	}
 
 	if (!info) {
@@ -4508,8 +4513,8 @@ static XrResult XRAPI_PTR xrEndFrame_runtime(XrSession, const XrFrameEndInfo* in
 		return XR_ERROR_VALIDATION_FAILURE;
 	}
 
-	if (shouldLog) {
-		if (verboseLogging) Logf("[OXRWXR] xrEndFrame: layers=%u", info->layerCount);
+	if (shouldLog && verboseLogging) {
+		Logf("[OXRWXR] xrEndFrame: layers=%u", info->layerCount);
 	}
 
 	// First pass: count layer types to know if we need to defer Present
@@ -4576,8 +4581,8 @@ static XrResult XRAPI_PTR xrEndFrame_runtime(XrSession, const XrFrameEndInfo* in
 		g_presentPending = false;
 	}
 
-	if (shouldLog && (quadCount > 0 || cylinderCount > 0)) {
-		if (verboseLogging) Logf("[OXRWXR] xrEndFrame: proj=%d quad=%d cyl=%d other=%d",
+	if (shouldLog && (quadCount > 0 || cylinderCount > 0) && verboseLogging) {
+		Logf("[OXRWXR] xrEndFrame: proj=%d quad=%d cyl=%d other=%d",
 			projectionCount, quadCount, cylinderCount, otherCount);
 	}
 
@@ -4669,8 +4674,8 @@ static XrResult XRAPI_PTR xrLocateViews_runtime(XrSession, const XrViewLocateInf
 		views[i].fov = { -fovTan, fovTan, fovTan, -fovTan };
 	}
 	static int locateCount = 0;
-	if (++locateCount % 90 == 1) {  // Log every 90 frames (~1 second)
-		if (verboseLogging) Logf("[OXRWXR] xrLocateViews: pos=(%.2f,%.2f,%.2f) yaw=%.2f pitch=%.2f",
+	if (++locateCount % 90 == 1 && verboseLogging) {  // Log every 90 frames (~1 second)
+		Logf("[OXRWXR] xrLocateViews: pos=(%.2f,%.2f,%.2f) yaw=%.2f pitch=%.2f",
 			rt::g_headPos.x, rt::g_headPos.y, rt::g_headPos.z,
 			rt::g_headYaw, rt::g_headPitch);
 	}
@@ -4698,6 +4703,8 @@ static XrResult XRAPI_PTR xrLocateSpace_runtime(XrSpace space, XrSpace baseSpace
 	// Check if this is a controller space
 	auto it = rt::g_controllerSpaces.find(space);
 	if (it != rt::g_controllerSpaces.end()) {
+		if (verboseLogging) Logf("[OXRWXR] xrLocateSpace: Found controller space");
+
 		int ctrlType = it->second;
 		const rt::ControllerState& ctrl = (ctrlType == 1) ? rt::g_leftController : rt::g_rightController;
 
@@ -4707,7 +4714,9 @@ static XrResult XRAPI_PTR xrLocateSpace_runtime(XrSpace space, XrSpace baseSpace
 		// Always tracking now
 		//if (ctrl.isTracking) {
 
-		if (true) {
+		if (it->second > 0) {
+			if (verboseLogging) Logf("[OXRWXR] xrLocateSpace: it->second is > 0");
+
 			location->locationFlags = XR_SPACE_LOCATION_POSITION_VALID_BIT |
 				XR_SPACE_LOCATION_ORIENTATION_VALID_BIT |
 				XR_SPACE_LOCATION_POSITION_TRACKED_BIT |
@@ -4724,16 +4733,17 @@ static XrResult XRAPI_PTR xrLocateSpace_runtime(XrSpace space, XrSpace baseSpace
 			}
 
 			static int logCount = 0;
-			if (++logCount % 500 == 1) {
+			if (++logCount % 500 == 1 && verboseLogging) {
 				float speed = sqrtf(ctrl.linearVelocity.x * ctrl.linearVelocity.x +
 					ctrl.linearVelocity.y * ctrl.linearVelocity.y +
 					ctrl.linearVelocity.z * ctrl.linearVelocity.z);
-				if (verboseLogging) Logf("[OXRWXR] xrLocateSpace: controller %d at (%.2f, %.2f, %.2f) vel=(%.2f, %.2f, %.2f) speed=%.2f m/s",
+				Logf("[OXRWXR] xrLocateSpace: controller %d at (%.2f, %.2f, %.2f) vel=(%.2f, %.2f, %.2f) speed=%.2f m/s",
 					ctrlType, location->pose.position.x, location->pose.position.y, location->pose.position.z,
 					ctrl.linearVelocity.x, ctrl.linearVelocity.y, ctrl.linearVelocity.z, speed);
 			}
 		}
 		else {
+			Logf("[OXRWXR] xrLocateSpace: it->second is <= 0");
 			location->locationFlags = 0;
 			location->pose.orientation = { 0, 0, 0, 1 };
 			location->pose.position = { 0, 0, 0 };
@@ -4741,6 +4751,7 @@ static XrResult XRAPI_PTR xrLocateSpace_runtime(XrSpace space, XrSpace baseSpace
 	}
 	else {
 		// Default for non-controller spaces (identity pose)
+		Logf("[OXRWXR] xrLocateSpace: it == rt::g_controllerSpaces.end()");
 		location->locationFlags = XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
 		location->pose.orientation = { 0, 0, 0, 1 };
 		location->pose.position = { 0, 0, 0 };
@@ -4759,6 +4770,9 @@ static XrResult XRAPI_PTR xrEnumerateReferenceSpaces_runtime(XrSession, uint32_t
 }
 
 static XrResult XRAPI_PTR xrCreateActionSpace_runtime(XrSession, const XrActionSpaceCreateInfo* info, XrSpace* space) {
+	static int dummyHandler = 0xF000;
+	*space = (XrSpace)(dummyHandler++);
+
 	if (!info || !space) return XR_ERROR_VALIDATION_FAILURE;
 	static uintptr_t nextSpace = 200;
 	*space = (XrSpace)(nextSpace++);
