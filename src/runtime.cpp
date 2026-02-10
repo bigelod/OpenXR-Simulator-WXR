@@ -531,7 +531,6 @@ namespace rt {
 	// Controller tracking state for motion controller emulation
 	// Positions are relative to head position, orientation follows head by default
 	struct ControllerState {
-		XrVector3f posOffset;  // Offset from head position (in head-local space)
 		float yawOffset;       // Additional yaw relative to head
 		float pitchOffset;     // Additional pitch relative to head
 		float rollOffset;      // Additional roll relative to head
@@ -557,13 +556,13 @@ namespace rt {
 		float prevRoll;				// Previous roll for angular velocity
 	};
 	static ControllerState g_leftController = {
-		{-0.2f, -0.3f, -0.4f}, 0.0f, -0.3f, true,  // Position/orientation
+		0.0f, -0.3f, true,  // Position/orientation
 		false, false, false, false, false, false,   // Button states
 		0.0f, 0.0f, 0.0f, {0.0f, 0.0f},                   // Analog values
 		{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, 0.0f, 0.0f, 0.0f  // Velocity tracking
 	};
 	static ControllerState g_rightController = {
-		{0.2f, -0.3f, -0.4f}, 0.0f, -0.3f, true,   // Position/orientation
+		0.0f, -0.3f, true,   // Position/orientation
 		false, false, false, false, false, false,   // Button states
 		0.0f, 0.0f, 0.0f, {0.0f, 0.0f},                   // Analog values
 		{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, 0.0f, 0.0f, 0.0f  // Velocity tracking
@@ -978,6 +977,7 @@ namespace rt {
 		if (s.hwnd) {
 			ShowWindow(s.hwnd, SW_SHOW);
 			UpdateWindow(s.hwnd);
+			SetFocus(s.hwnd);
 
 			//----------------
 			//OXRWXR CHANGE:
@@ -2705,6 +2705,7 @@ static XrResult XRAPI_PTR xrWaitFrame_runtime(XrSession, const XrFrameWaitInfo*,
 	// Velocity Tracking for Motion Controls
 	// ========================================
 	// Calculate controller world positions
+
 	XrPosef rightPose, leftPose;
 	rt::GetControllerPose(rt::g_rightController, &rightPose, true);
 	rt::GetControllerPose(rt::g_leftController, &leftPose, false);
@@ -4700,6 +4701,7 @@ static XrResult XRAPI_PTR xrLocateSpace_runtime(XrSpace space, XrSpace baseSpace
 	if (!location) return XR_ERROR_VALIDATION_FAILURE;
 	location->type = XR_TYPE_SPACE_LOCATION;
 
+	if (verboseLogging) Logf("Looking for space:0x%llX", (uint64_t)space);
 	// Check if this is a controller space
 	auto it = rt::g_controllerSpaces.find(space);
 	if (it != rt::g_controllerSpaces.end()) {
@@ -4743,7 +4745,7 @@ static XrResult XRAPI_PTR xrLocateSpace_runtime(XrSpace space, XrSpace baseSpace
 			}
 		}
 		else {
-			Logf("[OXRWXR] xrLocateSpace: it->second is <= 0");
+			if (verboseLogging) Logf("[OXRWXR] xrLocateSpace: it->second is <= 0");
 			location->locationFlags = 0;
 			location->pose.orientation = { 0, 0, 0, 1 };
 			location->pose.position = { 0, 0, 0 };
@@ -4751,7 +4753,13 @@ static XrResult XRAPI_PTR xrLocateSpace_runtime(XrSpace space, XrSpace baseSpace
 	}
 	else {
 		// Default for non-controller spaces (identity pose)
-		Logf("[OXRWXR] xrLocateSpace: it == rt::g_controllerSpaces.end()");
+		if (verboseLogging) {
+			Logf("[OXRWXR] xrLocateSpace: it == rt::g_controllerSpaces.end()");
+			Logf("rt::g_controllerSpaces contents:");
+			for (const auto& pair : rt::g_controllerSpaces) {
+				Logf("  Space: %p, Value: %p", pair.first, pair.second);
+			}
+		}
 		location->locationFlags = XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
 		location->pose.orientation = { 0, 0, 0, 1 };
 		location->pose.position = { 0, 0, 0 };
@@ -4770,8 +4778,8 @@ static XrResult XRAPI_PTR xrEnumerateReferenceSpaces_runtime(XrSession, uint32_t
 }
 
 static XrResult XRAPI_PTR xrCreateActionSpace_runtime(XrSession, const XrActionSpaceCreateInfo* info, XrSpace* space) {
-	static int dummyHandler = 0xF000;
-	*space = (XrSpace)(dummyHandler++);
+	/*static int dummyHandler = 0xF000;
+	*space = (XrSpace)(dummyHandler++);*/
 
 	if (!info || !space) return XR_ERROR_VALIDATION_FAILURE;
 	static uintptr_t nextSpace = 200;
@@ -4805,10 +4813,16 @@ static XrResult XRAPI_PTR xrCreateActionSpace_runtime(XrSession, const XrActionS
 	}
 
 	if (controllerType > 0) {
+		Logf("[OXRWXR] xrCreateActionSpace: space %llu controller type %d", (unsigned long long) * space, controllerType);
 		rt::g_controllerSpaces[*space] = controllerType;
-	}
 
-	Log("[OXRWXR] xrCreateActionSpace");
+		if (verboseLogging) {
+			Logf("rt::g_controllerSpaces contents:");
+			for (const auto& pair : rt::g_controllerSpaces) {
+				Logf("  Space: %p, Value: %p", pair.first, pair.second);
+			}
+		}
+	}
 	return XR_SUCCESS;
 }
 
