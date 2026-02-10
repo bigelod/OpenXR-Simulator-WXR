@@ -1458,9 +1458,6 @@ static XrResult XRAPI_PTR xrCreateInstance_runtime(const XrInstanceCreateInfo* c
 	Logf("[WinXrUDP] Starting UDP");
 	udpReader = new WinXrApiUDP();
 
-	float targetFOVH = 104.5;
-	float targetFOVW = 104.5;
-
 	if (udpReader) {
 		//Now we send the VR mode enable and target FOV of WinlatorXR at startup
 		udpReader->SendData("0 0 1 " + aerMode + " " + std::to_string(fovVarE) + " " + std::to_string(fovVarF));
