@@ -64,13 +64,9 @@ void WinXrApiUDP::ReceiveData()
 				}
 				iss >> openXRFrameID;
 
-				//if (Game::instance.OpenXRFrameID == openXRFrameID) {
-					//Game::instance.OpenXRFrameWait = 1;
-					//continue;
-				//}
-				//else {
-					//Game::instance.OpenXRFrameWait = 0;
-				//}
+				if (LastOpenXRFrameID == openXRFrameID) {
+					continue;
+				}
 
 				//Logger::log << "[WinXrUDP] UDP DATA " + returnData << std::endl;
 
@@ -79,11 +75,6 @@ void WinXrApiUDP::ReceiveData()
 					retData = returnData;
 				}
 				cv.notify_all();
-
-				// if (posData != nullptr)
-				// {
-				//     posData->ReceiveData(returnData);
-				// }
 			}
 		}
 		catch (const std::exception& e)
@@ -97,12 +88,6 @@ void WinXrApiUDP::SendData(std::string sendData)
 {
 	try
 	{
-		/*WSADATA wsaData;
-		if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-			Logger::log << "[WinXrUDP] WSAStartup failed with error " << WSAGetLastError() << std::endl;
-			return;
-		}*/
-
 		struct sockaddr_in targetAddress;
 		udpSendSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 		if (udpSendSocket == INVALID_SOCKET) {

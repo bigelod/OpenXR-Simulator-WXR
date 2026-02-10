@@ -2577,6 +2577,8 @@ static XrResult XRAPI_PTR xrWaitFrame_runtime(XrSession, const XrFrameWaitInfo*,
 
 	OpenXRFrameID = openXRFrameID;
 
+	udpReader->LastOpenXRFrameID = OpenXRFrameID;
+
 	//Logf("UDP string: %s", txt.c_str());
 
 	std::vector<bool> buttonBools;

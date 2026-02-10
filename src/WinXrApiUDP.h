@@ -21,6 +21,8 @@ public:
 	std::string GetRetData();
 	~WinXrApiUDP();
 
+	int LastOpenXRFrameID = -1;
+
 private:
 	int udpPort = 7872;
 	int udpSocket;
